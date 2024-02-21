@@ -1,0 +1,54 @@
+
+ ------------------------------  Log Analysis Tool  ------------------------------
+dict_keys(['DEPT', 'ASN', 'CALI', 'DRHO', 'DT', 'GR', 'GR_NORM', 'ILD', 'RHOB', 'SP', 'SP_NORM', 'VSH_GR', 'VSH_SP'])
+                               SARIMAX Results                                
+==============================================================================
+Dep. Variable:                      y   No. Observations:                13543
+Model:                 ARIMA(5, 1, 0)   Log Likelihood              -28290.555
+Date:                Wed, 21 Feb 2024   AIC                          56593.109
+Time:                        10:14:58   BIC                          56638.190
+Sample:                             0   HQIC                         56608.142
+                              - 13543                                         
+Covariance Type:                  opg                                         
+==============================================================================
+                 coef    std err          z      P>|z|      [0.025      0.975]
+------------------------------------------------------------------------------
+ar.L1          1.1084      0.004    314.001      0.000       1.101       1.115
+ar.L2         -0.5243      0.006    -84.417      0.000      -0.536      -0.512
+ar.L3          0.1098      0.008     14.372      0.000       0.095       0.125
+ar.L4         -0.0274      0.008     -3.327      0.001      -0.044      -0.011
+ar.L5         -0.0122      0.006     -2.085      0.037      -0.024      -0.001
+sigma2         3.8199      0.017    219.079      0.000       3.786       3.854
+===================================================================================
+Ljung-Box (L1) (Q):                   0.00   Jarque-Bera (JB):             98975.97
+Prob(Q):                              0.96   Prob(JB):                         0.00
+Heteroskedasticity (H):               3.95   Skew:                             0.08
+Prob(H) (two-sided):                  0.00   Kurtosis:                        16.24
+===================================================================================
+
+Warnings:
+[1] Covariance matrix calculated using the outer product of gradients (complex-step).
+
+ ------------------------------  Baseline Correction Tool  ------------------------------
+Tensorflow built with CUDA? True
+# GPU available: 1
+CUDA: 12.2 | cuDNN: 8
+PhysicalDevice(name='/physical_device:CPU:0', device_type='CPU') 
+ PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')
+------------------------------------------------------------
+(389, 44055, 3)
+Well logs with Depth Derivative: (389, 44055, 4)
+Well logs with Autocorrelation: (389, 44055, 5)
+Well logs with Detrend Filter: (389, 44055, 6)
+Well logs with Fourier Transform: (389, 44055, 7)
+Well logs with Hilbert Transform: (389, 44055, 8)
+Well logs with Symmetric IIR Filter: (389, 44055, 9)
+Well logs with Savitzky-Golay Filter: (389, 44055, 10)
+Well logs with Cubic Spline: (389, 44055, 11)
+------------------------------------------------------------
+X_train: (300, 44055, 10) | X_test: (89, 44055, 10)
+y_train: (300, 44055, 1) | y_test: (89, 44055, 1)
+------------------------------------------------------------
+-------------------------------------------------- 
+ # Parameters: 89,681
+Epoch 1/100

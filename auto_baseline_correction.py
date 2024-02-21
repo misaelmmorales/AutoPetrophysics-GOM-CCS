@@ -24,6 +24,7 @@ class SPLogAnalysis:
         self.return_data = False
         self.verbose     = True
         self.save_fig    = True
+        print('\n','-'*30,' Log Analysis Tool ','-'*30)
     
     def read_all_headers(self):
         '''
@@ -177,6 +178,7 @@ class BaselineCorrection:
         self.return_data = False
         self.verbose     = True
         self.save_fig    = True
+        print('\n','-'*30,' Baseline Correction Tool ','-'*30)
         self.check_tf_gpu()
     
     def check_tf_gpu(self):
@@ -186,6 +188,7 @@ class BaselineCorrection:
             print('# GPU available:', len(tf.config.experimental.list_physical_devices('GPU')))
             print("CUDA: {} | cuDNN: {}".format(sys_info["cuda_version"], sys_info["cudnn_version"]))
             print(tf.config.list_physical_devices()[0],'\n', tf.config.list_physical_devices()[1])
+            print('-'*60) if self.verbose else None
         return None
 
     def load_logs(self, folder='Data/UT Export 9-19/', preload:bool=True, showfig=True,
@@ -304,6 +307,7 @@ class BaselineCorrection:
         if decimate:
             self.logs_clean = signal.decimate(self.logs_clean, q=decimate_q, axis=1)
             print('Well logs decimated by a factor of {}: {}'.format(decimate_q, self.logs_clean.shape)) if self.verbose else None
+        print('-'*60) if self.verbose else None
         if self.return_data:
             return self.logs, self.logs_clean
    
@@ -336,18 +340,20 @@ class BaselineCorrection:
             print('y_train: {} | y_test: {}'.format(self.y_train.shape, self.y_test.shape))
         self.train_test_data = {'X_train':self.X_train, 'X_test':self.X_test, 
                                 'y_train':self.y_train, 'y_test':self.y_test}
+        print('-'*60) if self.verbose else None
         return self.train_test_data if self.return_data else None
     
     def make_model(self, pretrained=None, show_summary:bool=False,
                    kernel_size=15, dropout=0.2, depths=[16,32,64],
                    optimizer='adam', lr=1e-3, loss='mse', metrics='mse', 
-                   epochs=100, batch_size=32, valid_split=0.24, 
+                   epochs=100, batch_size=30, valid_split=0.25, verbose=True,
                    save_name='baseline_correction_model', figsize=(10,5)):
         if pretrained != None:
             self.model = keras.models.load_model(pretrained)
             self.encoder = Model(inputs=self.model.input, outputs=self.model.layers[15].output)
             self.model.summary() if show_summary else None
             print('-'*50,'\n','# Parameters: {:,}'.format(self.model.count_params())) if self.verbose else None
+            print('-'*60) if self.verbose else None
             if self.return_data:
                 return self.model, self.encoder
         elif pretrained == None:
@@ -356,9 +362,10 @@ class BaselineCorrection:
             self.model.summary() if show_summary else None
             self.train_model(optimizer=optimizer, lr=lr, loss=loss, metrics=metrics, 
                              epochs=epochs, batch_size=batch_size, valid_split=valid_split, 
-                             save_name=save_name)
+                             verbose=verbose, save_name=save_name)
             self.plot_loss(figsize=figsize)
             self.encoder = Model(inputs=self.model.input, outputs=self.model.layers[15].output)
+            print('-'*60) if self.verbose else None
             if self.return_data:
                 return self.model, self.encoder, self.fit
         else:
@@ -380,6 +387,7 @@ class BaselineCorrection:
             self.plot_predictions(train_or_test='train', xlim=xlim)
             self.plot_predictions(train_or_test='test', xlim=xlim)
             self.calc_ensemble_uq(); self.plot_csh_pred('train'); self.plot_csh_pred('test')
+        print('-'*60) if self.verbose else None
         return None
         
     '''
@@ -421,13 +429,13 @@ class BaselineCorrection:
         self.model = Model(inputs, outputs)
         return self.model if self.return_data else None
     
-    def train_model(self, optimizer='adam', lr=1e-3, loss='mse', metrics='mse',
-                    epochs=100, batch_size=32, valid_split=0.25, 
+    def train_model(self, optimizer='adam', lr=1e-3, wd=1e-5, loss='mse', metrics='mse',
+                    epochs=100, batch_size=32, valid_split=0.25, verbose=False,
                     save_name='baseline_correction_model'):
         if optimizer=='adam':
             opt = optimizers.Adam(learning_rate=lr)
         elif optimizer=='adamw':
-            opt = optimizers.AdamW(learning_rate=lr)
+            opt = optimizers.AdamW(learning_rate=lr, weight_decay=wd)
         elif optimizer=='sgd':
             opt = optimizers.SGD(learning_rate=lr)
         self.model.compile(optimizer=opt, loss=loss, metrics=[metrics])
@@ -436,7 +444,7 @@ class BaselineCorrection:
                                 batch_size       = batch_size,
                                 validation_split = valid_split,
                                 shuffle          = True,
-                                verbose          = False)
+                                verbose          = verbose)
         self.model.save('{}.keras'.format(save_name))
         return self.model, self.fit if self.return_data else None
     
