@@ -114,7 +114,7 @@ class SPLogAnalysis:
         plt.show()
         return None
 
-    def plot_well(self, well_name:str, figsize=(10,8), fig2size=(10,3)):
+    def plot_well(self, well_name:str, figsize=(10,8), fig2size=(10,3), curve='SP', order=(5,1,0), fig3size=(10,4)):
         '''
         Full well log plot with tracks for each curve
         '''
@@ -152,17 +152,11 @@ class SPLogAnalysis:
         plt.tight_layout()
         plt.savefig('figures/autocorr_well_{}.png'.format(well_name), dpi=300) if self.save_fig else None
         plt.show()
-        return well_log if self.return_data else None
-    
-    def make_arima(self, well_name, curve='SP', order=(5,1,0), figsize=(10,4)):
-        '''
-        Calculate ARIMA model for a given well log curve
-        '''
-        well_log = lasio.read('Data/UT Export 9-19/{}.las'.format(well_name))
+        ### Calculate ARIMA model for a given well log curve
         model = ARIMA(well_log[curve], order=order)
         model_fit = model.fit()
         print(model_fit.summary()) if self.verbose else None
-        _, ax = plt.subplots(1,1,figsize=figsize)
+        _, ax = plt.subplots(1,1,figsize=fig3size)
         mu, std = stats.norm.fit(model_fit.resid)
         x = np.linspace(-20,20,500)
         p = stats.norm.pdf(x, mu, std)
@@ -174,7 +168,7 @@ class SPLogAnalysis:
         plt.tight_layout()
         plt.savefig('figures/arima_{}'.format(well_name), dpi=300) if self.save_fig else None
         plt.show()
-        return None
+        return well_log if self.return_data else None    
 
 ###########################################################################
 ###################### AUTOMATIC BASELINE CORRECTION ######################
@@ -197,14 +191,13 @@ class BaselineCorrection:
         return None
 
     def load_logs(self, folder='Data/UT Export 9-19/', preload:bool=True, showfig=True,
-                  dxdz:bool=True,
-                  hilbert:bool=True,
-                  detrend:bool=True,
-                  fourier:bool=True, fourier_window=[1e-3,0.025], fourier_scale=1e3,
-                  symiir:bool=True, symiir_c0=0.5, symiir_z1=0.1,
-                  savgol:bool=True, savgol_window=15, savgol_order=2,
-                  cspline:bool=True, spline_lambda=0.0,
-                  autocorr:bool=True, autocorr_method='fft', autocorr_mode='same'):
+                  decimate:bool=False, decimate_q:int=10,
+                  dxdz:bool=True,      hilbert:bool=True, detrend:bool=True,
+                  fourier:bool=True,   fourier_window=[1e-3,0.025], fourier_scale=1e3,
+                  symiir:bool=True,    symiir_c0=0.5, symiir_z1=0.1,
+                  savgol:bool=True,    savgol_window=15, savgol_order=2,
+                  cspline:bool=True,   spline_lambda=0.0,
+                  autocorr:bool=True,  autocorr_method='fft', autocorr_mode='same'):
         '''
         Load all logs. 
             If preload=False: 
@@ -252,15 +245,6 @@ class BaselineCorrection:
             logs_ac = calc_autocorr(logs_clean)
             self.logs = np.concatenate((self.logs, logs_ac), axis=-1)
             print('Well logs with Autocorrelation:', self.logs.shape) if self.verbose else None
-        if hilbert:
-            def calc_hilbert(l):
-                hilb = np.zeros((l.shape[0], l.shape[1]))
-                for i in range(l.shape[0]):
-                    hilb[i,:] = np.abs(signal.hilbert(l[i,:,1]))
-                return np.expand_dims(hilb, axis=-1)
-            logs_hilb = calc_hilbert(logs_clean)
-            self.logs = np.concatenate((self.logs, logs_hilb), axis=-1)
-            print('Well logs with Hilbert Transform:', self.logs.shape) if self.verbose else None
         if detrend:
             def calc_detrend(l):
                 dt = np.zeros((l.shape[0], l.shape[1]))
@@ -280,6 +264,15 @@ class BaselineCorrection:
             logs_fourier = calc_fourier(logs_clean)
             self.logs = np.concatenate((self.logs, logs_fourier), axis=-1)
             print('Well logs with Fourier Transform:', self.logs.shape) if self.verbose else None
+        if hilbert:
+            def calc_hilbert(l):
+                hilb = np.zeros((l.shape[0], l.shape[1]))
+                for i in range(l.shape[0]):
+                    hilb[i,:] = np.abs(signal.hilbert(l[i,:,1]))
+                return np.expand_dims(hilb, axis=-1)
+            logs_hilb = calc_hilbert(logs_clean)
+            self.logs = np.concatenate((self.logs, logs_hilb), axis=-1)
+            print('Well logs with Hilbert Transform:', self.logs.shape) if self.verbose else None
         if symiir:
             def calc_symiir(l):
                 symiir = np.zeros((l.shape[0], l.shape[1]))
@@ -310,6 +303,9 @@ class BaselineCorrection:
         self.logs_clean = np.nan_to_num(self.logs, nan=0)
         self.plot_SP_and_NORM(self.logs, short_title='raw') if showfig else None
         self.plot_SP_and_NORM(self.logs_clean, short_title='clean') if showfig else None
+        if decimate:
+            self.logs_clean = signal.decimate(self.logs_clean, q=decimate_q, axis=1)
+            print('Well logs decimated by a factor of {}: {}'.format(decimate_q, self.logs_clean.shape)) if self.verbose else None
         if self.return_data:
             return self.logs, self.logs_clean
    
@@ -334,32 +330,39 @@ class BaselineCorrection:
             raise ValueError('scaler must be "standard", "minmax" or "none"')
         self.plot_SP_and_NORM(self.logs_norm, short_title='normalized', xlim=(-5,5)) if showfig else None
         self.scaler_values = {'sd':sd, 'mu':mu, 'min':minvalue, 'max':maxvalue}
-        x = np.delete(self.logs_norm, 2, axis=2)
+        x = np.delete(self.logs_norm, 2, axis=-1)
         y = np.expand_dims(self.logs_norm[...,2], -1)
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(x, y, test_size=test_size)
         if self.verbose:
-            print('X_train: {} | y_train: {}'.format(self.X_train.shape, self.y_train.shape))
-            print('X_test:  {}  | y_test:  {}'.format(self.X_test.shape, self.y_test.shape))
+            print('X_train: {} | X_test: {}'.format(self.X_train.shape, self.X_test.shape))
+            print('y_train: {} | y_test: {}'.format(self.y_train.shape, self.y_test.shape))
         self.train_test_data = {'X_train':self.X_train, 'X_test':self.X_test, 
                                 'y_train':self.y_train, 'y_test':self.y_test}
         return self.train_test_data if self.return_data else None
     
-    def make_model(self, pretrained=None,
-                   kernel_size=15, optimizer='adam', lr=1e-3, loss='mse', metrics='mse', 
-                   epochs=100, batch_size=32, valid_split=0.24, save_name='baseline_correction_model',
-                   figsize=(10,5)):
+    def make_model(self, pretrained=None, show_summary:bool=False,
+                   kernel_size=15, dropout=0.2, depths=[16,32,64],
+                   optimizer='adam', lr=1e-3, loss='mse', metrics='mse', 
+                   epochs=100, batch_size=32, valid_split=0.24, 
+                   save_name='baseline_correction_model', figsize=(10,5)):
         if pretrained != None:
             self.model = keras.models.load_model(pretrained)
-            self.model.summary() if self.verbose else None
-            return self.model if self.return_data else None
+            self.encoder = Model(inputs=self.model.input, outputs=self.model.layers[15].output)
+            self.model.summary() if show_summary else None
+            print('-'*50,'\n','# Parameters: {:,}'.format(self.model.count_params())) if self.verbose else None
+            if self.return_data:
+                return self.model, self.encoder
         elif pretrained == None:
-            self.make_nn(kernel_size=kernel_size)
-            self.model.summary() if self.verbose else None
+            self.make_nn(kernel_size=kernel_size, drop=dropout, depths=depths)
+            print('-'*50,'\n','# Parameters: {:,}'.format(self.model.count_params())) if self.verbose else None
+            self.model.summary() if show_summary else None
             self.train_model(optimizer=optimizer, lr=lr, loss=loss, metrics=metrics, 
                              epochs=epochs, batch_size=batch_size, valid_split=valid_split, 
                              save_name=save_name)
             self.plot_loss(figsize=figsize)
-            return self.model, self.fit if self.return_data else None
+            self.encoder = Model(inputs=self.model.input, outputs=self.model.layers[15].output)
+            if self.return_data:
+                return self.model, self.encoder, self.fit
         else:
             raise ValueError('pretrained must be either: "None" to make and train a model, or a valid path to a .keras model')
 
@@ -370,44 +373,54 @@ class BaselineCorrection:
         test_mse  = mean_squared_error(self.y_test.squeeze().astype('float32'), self.y_test_pred)
         if self.verbose:
             print('-'*50)
-            print('X_train: {} | y_train: {}'.format(self.X_train.shape, self.y_train.shape))
-            print('X_test:  {}  | y_test:  {}'.format(self.X_test.shape, self.y_test.shape))   
+            print('X_train: {}  | y_train: {}'.format(self.X_train.shape, self.y_train.shape))
+            print('X_test:  {}   | y_test:  {}'.format(self.X_test.shape, self.y_test.shape))   
             print('y_train_pred: {} | y_test_pred: {}'.format(self.y_train_pred.shape, self.y_test_pred.shape))
             print('-'*50)
             print('Train MSE: {:.4f} | Test MSE: {:.4f}'.format(train_mse, test_mse))
-        self.plot_predictions(train_or_test='train', xlim=xlim) if showfig else None
-        self.plot_predictions(train_or_test='test', xlim=xlim) if showfig else None
+        if showfig:
+            self.plot_predictions(train_or_test='train', xlim=xlim)
+            self.plot_predictions(train_or_test='test', xlim=xlim)
+            self.calc_ensemble_uq(); self.plot_csh_pred('train'); self.plot_csh_pred('test')
         return None
         
     '''
     Auxiliary functions
     '''
-    def make_nn(self, kernel_size=15):
+    def make_nn(self, kernel_size=15, drop=0.2, depths=[16,32,64]):
         K.clear_session()
         ndata, nchannels = self.X_train.shape[1], self.X_train.shape[2]
         def enc_layer(inp, units):
             _ = layers.Conv1D(units, kernel_size, padding='same')(inp)
             _ = layers.BatchNormalization()(_)
             _ = layers.ReLU()(_)
+            _ = layers.Dropout(drop)(_)
             _ = layers.MaxPooling1D(2)(_)
             return _
         def dec_layer(inp, units):
             _ = layers.Conv1D(units, kernel_size, padding='same')(inp)
             _ = layers.BatchNormalization()(_)
             _ = layers.ReLU()(_)
+            _ = layers.Dropout(drop)(_)
             _ = layers.UpSampling1D(2)(_)
             return _
-        inputs = layers.Input(shape=(ndata, nchannels))
-        enc1 = enc_layer(inputs, 16)
-        enc2 = enc_layer(enc1, 64)
-        enc3 = enc_layer(enc2, 128)
-        dec3 = dec_layer(enc3, 64)
-        dec2 = dec_layer(dec3, 16)
-        dec1 = dec_layer(dec2, 4)
-        _ = layers.ZeroPadding1D((4,3))(dec1)
-        outputs = layers.Conv1D(1, kernel_size, padding='same', activation='linear')(_)
+        def residual_cat(in1, in2):
+            _ = layers.ZeroPadding1D((1,0))(in2)
+            _ = layers.Concatenate()([in1, _])
+            return _
+        def out_layer(inp, units):
+            _ = dec_layer(inp, units)
+            #_ = layers.ZeroPadding1D((1,0))(_)
+            _ = layers.Conv1D(1, kernel_size, padding='same', activation='linear')(_)
+            return _
+        inputs  = layers.Input(shape=(ndata, nchannels))
+        enc1    = enc_layer(inputs, depths[0])
+        enc2    = enc_layer(enc1,   depths[1])
+        zlatent = enc_layer(enc2,   depths[2])
+        dec3    = residual_cat(enc2, dec_layer(zlatent, depths[1]))
+        dec2    = residual_cat(enc1, dec_layer(dec3,    depths[0]))
+        outputs = out_layer(dec2, 4)
         self.model = Model(inputs, outputs)
-        self.model.summary() if self.verbose else None
         return self.model if self.return_data else None
     
     def train_model(self, optimizer='adam', lr=1e-3, loss='mse', metrics='mse',
@@ -429,7 +442,7 @@ class BaselineCorrection:
         self.model.save('{}.keras'.format(save_name))
         return self.model, self.fit if self.return_data else None
     
-    def plot_loss(self, figsize=(10,5)):
+    def plot_loss(self, figsize=(5,4)):
         plt.figure(figsize=figsize)
         plt.plot(self.fit.history['loss'], label='Training')
         plt.plot(self.fit.history['val_loss'], label='Validation')
@@ -470,7 +483,7 @@ class BaselineCorrection:
         return None
 
     def plot_SP_and_NORM(self, data=None, nrows=3, ncols=10, mult=1, figsize=(20,12), xlim=(-200,50), short_title:str='clean'):
-        _, axs = plt.subplots(nrows, ncols, figsize=figsize, sharey=True)
+        fig, axs = plt.subplots(nrows, ncols, figsize=figsize, sharey=True)
         k = 0
         d = self.logs_clean if data is None else data
         for i in range(nrows):
@@ -485,10 +498,74 @@ class BaselineCorrection:
                 axs[i,j].grid(True, which='both')
                 k += mult
         axs[0,0].invert_yaxis()
+        fig.suptitle('{} dataset'.format(short_title), weight='bold', fontsize=14)
         plt.tight_layout()
         plt.savefig('figures/SP_and_NORM_{}.png'.format(short_title), dpi=300) if self.save_fig else None
         plt.show()
         return None
+    
+    def calc_ensemble_uq(self, data=None, bounds=[10,90], showfig:bool=True, sample_log:int=5, figsize=(5,7), colors=['darkred','red']):
+        if data is None:
+            data, sample, index = self.logs[...,2], self.logs[sample_log,:,2], self.logs[sample_log,:,0]
+        else:
+            data, sample, index = data[...,2], data[sample_log,:,2], data[sample_log,:,0]
+        lb = np.nanpercentile(data, bounds[0], axis=0)
+        mu = np.nanpercentile(data, 50, axis=0)
+        ub = np.nanpercentile(data, bounds[1], axis=0)
+        if showfig:
+            plt.figure(figsize=figsize)
+            plt.plot(sample, index, 'darkmagenta', label='Sample Log (#{})'.format(sample_log))
+            plt.plot(lb,     index, color=colors[0], label='P{}'.format(bounds[0]))
+            plt.plot(mu,     index, color=colors[1], label='P50')
+            plt.plot(ub,     index, color=colors[0], label='P{}'.format(bounds[1]))
+            plt.fill_betweenx(index, lb, ub, color=colors[0], alpha=0.5)
+            plt.xlabel('SP [mV]', weight='bold'); plt.ylabel('Depth [ft]', weight='bold')
+            plt.title('Ensemble UQ', weight='bold')
+            plt.legend(facecolor='lightgrey', edgecolor='k', fancybox=False, shadow=True)
+            plt.grid(True, which='both')
+            plt.gca().invert_yaxis()
+            plt.tight_layout()
+            plt.savefig('figures/ensemble_uq.png', dpi=300) if self.save_fig else None
+            plt.show()
+        self.ens_uq = {'lb':lb, 'mu':mu, 'ub':ub}
+        return self.ens_uq if self.return_data else None
+    
+    def plot_csh_pred(self, train_or_test:str='train', bounds=[10,90],
+                      showfig:bool=True, nrows=3, ncols=10, mult:int=1, x2lim=None, 
+                      colors=['darkmagenta','tab:blue','tab:green'], figsize=(20,12)):
+        if train_or_test=='train':
+            yh, idx = self.y_train_pred, self.X_train[...,0]
+        elif train_or_test=='test':
+            yh, idx = self.y_test_pred, self.X_test[...,0]
+        else:
+            raise ValueError('train_or_test must be "train" or "test"')
+        csh_linear = np.zeros((yh.shape[0], yh.shape[1]))
+        csh_uncert = np.zeros((yh.shape[0], yh.shape[1]))
+        for i in range(yh.shape[0]):
+            d = yh[i]
+            lb = np.percentile(d, bounds[0])
+            ub = np.percentile(d, bounds[1])
+            csh_linear[i] = (d - d.min()) / (d.max() - d.min())
+            z = (d - lb) / (ub - lb)
+            csh_uncert[i] = (z - z.min()) / (z.max() - z.min())
+        if showfig:
+            k = 0
+            fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
+            for i in range(nrows):
+                for j in range(ncols):
+                    ax, ax2 = axs[i,j], axs[i,j].twiny()
+                    ax.plot(yh[k], idx[k], color=colors[0])
+                    ax2.plot(csh_linear[k], idx[k], color=colors[1])
+                    ax2.plot(csh_uncert[k], idx[k], color=colors[2])
+                    ax2.set_xlim(x2lim)
+                    axs[i,0].set_ylabel('Depth [ft]'); axs[-1,j].set_xlabel('SP_pred')
+                    ax.grid(True, which='both'); ax.invert_yaxis()
+                    k += mult
+            fig.suptitle('{} $C_{sh}$ estimation'.format(train_or_test), weight='bold', fontsize=14)
+            plt.tight_layout()
+            plt.savefig('figures/csh_uq_{}.png'.format(train_or_test), dpi=300) if self.save_fig else None
+            plt.show()
+        return self.csh if self.return_data else None
 
 ###########################################################################
 ############################## MAIN ROUTINE ###############################
