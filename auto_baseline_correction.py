@@ -567,7 +567,7 @@ class BaselineCorrection:
                     axs[i,0].set_ylabel('Depth [ft]'); axs[-1,j].set_xlabel('SP_pred')
                     ax.grid(True, which='both'); ax.invert_yaxis()
                     k += mult
-            fig.suptitle('{} $C_{sh}$ estimation'.format(train_or_test), weight='bold', fontsize=14)
+            fig.suptitle('{} $Csh$ estimation'.format(train_or_test), weight='bold', fontsize=14)
             plt.tight_layout()
             plt.savefig('figures/csh_uq_{}.png'.format(train_or_test), dpi=300) if self.save_fig else None
             plt.show()
