@@ -340,6 +340,8 @@ class BaselineCorrection:
             print('y_train: {} | y_test: {}'.format(self.y_train.shape, self.y_test.shape))
         self.train_test_data = {'X_train':self.X_train, 'X_test':self.X_test, 
                                 'y_train':self.y_train, 'y_test':self.y_test}
+        self.plot_features(train_or_test='train') if showfig else None
+        self.plot_features(train_or_test='test') if showfig else None
         print('-'*60) if self.verbose else None
         return self.train_test_data if self.return_data else None
     
@@ -456,6 +458,33 @@ class BaselineCorrection:
         plt.xlabel('Epochs', weight='bold'); plt.ylabel('Loss', weight='bold')
         plt.legend(); plt.grid(True, which='both'); plt.tight_layout()
         plt.savefig('figures/Training_Performance.png', dpi=300) if self.save_fig else None
+        plt.show()
+        return None
+
+    def plot_features(self, train_or_test:str='train', nrows=5, ncols=10, mult=1, figsize=(20,12),
+                    feature_names=['Depth','SP','dxdz','AutoCorrelation','Detrend','FFT',
+                                   'Hilbert','SymIIR','Savitzky-Golay','Cubic Splines'],
+                    colors=['tab:gray','tab:red','tab:orange','tab:olive','tab:green',
+                            'tab:cyan','tab:blue','tab:pink','magenta','tab:purple','tab:brown']):
+        fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
+        if train_or_test == 'train':
+            x = self.X_train
+            idx = x[...,0]
+        elif train_or_test == 'test':
+            x = self.X_test
+            idx = x[...,0]
+        else:
+            raise ValueError('train_or_test must be "train" or "test"')
+        for i in range(nrows):
+            for j in range(ncols):
+                k = i*mult
+                axs[i,j].plot(x[k,:,j], idx[k], color=colors[j])
+                axs[0,j].set_title(feature_names[j])
+                axs[i,0].set_ylabel('{} {}'.format(train_or_test, k))
+                axs[i,j].grid(True, which='both')
+        fig.suptitle('{} Features'.format(train_or_test), weight='bold', fontsize=14)
+        plt.tight_layout()
+        plt.savefig('figures/{}_features.png'.format(train_or_test), dpi=300) if self.save_fig else None
         plt.show()
         return None
 
