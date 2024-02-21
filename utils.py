@@ -449,7 +449,7 @@ class BaselineCorrection:
         plt.title('Training Performance', weight='bold')
         plt.xlabel('Epochs', weight='bold'); plt.ylabel('Loss', weight='bold')
         plt.legend(); plt.grid(True, which='both'); plt.tight_layout()
-        plt.savefig('Training_Performance.png', dpi=300) if self.save_fig else None
+        plt.savefig('figures/Training_Performance.png', dpi=300) if self.save_fig else None
         plt.show()
         return None
 
