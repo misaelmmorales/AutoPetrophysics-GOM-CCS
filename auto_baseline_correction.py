@@ -24,7 +24,7 @@ class SPLogAnalysis:
         self.return_data = False
         self.verbose     = True
         self.save_fig    = True
-        print('\n','-'*30,' Log Analysis Tool ','-'*30)
+        print('-'*30,' Log Analysis Tool ','-'*30)
     
     def read_all_headers(self):
         '''
