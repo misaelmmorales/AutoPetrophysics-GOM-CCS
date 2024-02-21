@@ -430,7 +430,7 @@ class BaselineCorrection:
         return self.model if self.return_data else None
     
     def train_model(self, optimizer='adam', lr=1e-3, wd=1e-5, loss='mse', metrics='mse',
-                    epochs=100, batch_size=32, valid_split=0.25, verbose=False,
+                    epochs=100, batch_size=32, valid_split=0.25, verbose=True,
                     save_name='baseline_correction_model'):
         if optimizer=='adam':
             opt = optimizers.Adam(learning_rate=lr)
