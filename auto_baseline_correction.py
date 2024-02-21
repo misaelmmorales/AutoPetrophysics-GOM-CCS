@@ -5,11 +5,9 @@ import matplotlib.pyplot as plt
 
 import lasio
 from tqdm import tqdm
-from scipy import stats, signal, linalg, fft
+from scipy import stats, signal
 from statsmodels.tsa.arima.model import ARIMA
-
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.metrics import mean_squared_error
 
 import keras
