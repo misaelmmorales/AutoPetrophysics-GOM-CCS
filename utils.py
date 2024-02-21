@@ -410,7 +410,7 @@ class BaselineCorrection:
             return _
         def out_layer(inp, units):
             _ = dec_layer(inp, units)
-            #_ = layers.ZeroPadding1D((1,0))(_)
+            _ = layers.ZeroPadding1D((1,0))(_)
             _ = layers.Conv1D(1, kernel_size, padding='same', activation='linear')(_)
             return _
         inputs  = layers.Input(shape=(ndata, nchannels))
@@ -577,9 +577,7 @@ if __name__ == '__main__':
     spl = SPLogAnalysis()
     spl.plot_ccs_sand_wells()
     spl.plot_survey()
-    well_name = '17700004060000'
-    spl.plot_well(well_name)
-    spl.make_arima(well_name)
+    spl.plot_well('17700004060000')
 
     ### Baseline Correction
     blc = BaselineCorrection()
@@ -588,3 +586,6 @@ if __name__ == '__main__':
     blc.make_model(pretrained=None)
     blc.make_predictions()
 
+###########################################################################
+################################## END ####################################
+###########################################################################
