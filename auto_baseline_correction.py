@@ -229,7 +229,7 @@ class BaselineCorrection:
             for i in range(len(logs_list)):
                 logs[i,logs_list[i].index,:] = logs_list[i].values
             self.logs = np.where(logs==0, np.nan, logs)
-            np.save(preload_file, self.logs)
+            np.save('log_data.npy', self.logs)
             print(self.logs.shape) if self.verbose else None
             logs_clean = np.nan_to_num(self.logs, nan=0)
         if dxdz:
