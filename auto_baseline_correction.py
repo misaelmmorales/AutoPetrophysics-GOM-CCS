@@ -92,13 +92,13 @@ class SPLogAnalysis:
         plt.show()
         return None
 
-    def plot_survey(self, survey=None, figsize=(10,5), showcols:bool=False):
+    def plot_survey(self, fname=None, figsize=(10,5), showcols:bool=False):
         '''
         Plot the directional survey from 'DATA/UT dir surveys'
         '''
-        if survey==None:
+        if fname==None:
             fname = '427064023000_DIRSUR_NAD27(USFEET)US-SPC27-EXACT(TX-27SC).TXT'
-            survey = pd.read_csv('Data/UT dir surveys/{}'.format(fname), skiprows=3, sep='\s+')
+        survey = pd.read_csv('Data/UT dir surveys/{}'.format(fname), skiprows=3, sep='\s+')
         wname = fname.split('.')[0].split('_')[0]
         print('DF Columns:', survey.columns.values) if showcols else None
         fig = plt.figure(figsize=figsize)
@@ -174,6 +174,8 @@ class SPLogAnalysis:
 ###########################################################################
 class BaselineCorrection:
     def __init__(self):
+        self.log_length  = 44055
+        self.folder      = 'Data/UT Export 9-19/'
         self.return_data = False
         self.verbose     = True
         self.save_fig    = True
@@ -190,7 +192,7 @@ class BaselineCorrection:
             print('-'*60) if self.verbose else None
         return None
 
-    def load_logs(self, folder='Data/UT Export 9-19/', showfig=True,
+    def load_logs(self, folder=None,   showfig=True,
                   preload:bool=True,   preload_file:str='Data/log_data.npy',
                   decimate:bool=False, decimate_q:int=10,
                   dxdz:bool=True,      hilbert:bool=True, detrend:bool=True,
@@ -208,6 +210,8 @@ class BaselineCorrection:
             If preload=True: 
                 This function will load the logs from the saved NumPy file and creates a clean version too.
         '''
+        if folder==None:
+            folder = self.folder
         if preload:
             self.logs = np.load(preload_file)
             print(self.logs.shape) if self.verbose else None
@@ -221,11 +225,11 @@ class BaselineCorrection:
                 if 'SP' in log.curvesdict.keys() and 'SP_NORM' in log.curvesdict.keys():
                     logs_list[k] = pd.DataFrame({'DEPT': log['DEPT'], 'SP': log['SP'], 'SP_NORM': log['SP_NORM']})
                     k += 1
-            logs = np.zeros((len(logs_list),44055,3))
+            logs = np.zeros((len(logs_list),self.log_length,3))
             for i in range(len(logs_list)):
                 logs[i,logs_list[i].index,:] = logs_list[i].values
             self.logs = np.where(logs==0, np.nan, logs)
-            np.save('Data/log_data.npy', self.logs)
+            np.save(preload_file, self.logs)
             print(self.logs.shape) if self.verbose else None
             logs_clean = np.nan_to_num(self.logs, nan=0)
         if dxdz:
