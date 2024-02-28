@@ -26,7 +26,7 @@ class SPLogAnalysis:
         self.save_fig    = True
         print('-'*30,' Log Analysis Tool ','-'*30)
     
-    def read_all_headers(self):
+    def read_all_headers(self, folder='Data/UT Export 9-19/'):
         '''
         Read all headers one-by-one for all logs in the folder to identify repeated
         and unique curves. This will help in identifying the most common curves and 
@@ -34,7 +34,7 @@ class SPLogAnalysis:
         '''
         self.headers = {}
         k = 0
-        for root, _, files in os.walk('Data/UT Export 9-19'):
+        for root, _, files in os.walk(folder):
             for f in files:
                 fname = os.path.join(root,f)
                 df = lasio.read(fname).df()
@@ -174,7 +174,6 @@ class SPLogAnalysis:
 ###########################################################################
 class BaselineCorrection:
     def __init__(self):
-        self.folder = 'Data/UT Export 9-19/'
         self.return_data = False
         self.verbose     = True
         self.save_fig    = True
@@ -191,7 +190,8 @@ class BaselineCorrection:
             print('-'*60) if self.verbose else None
         return None
 
-    def load_logs(self, folder='Data/UT Export 9-19/', preload:bool=True, showfig=True,
+    def load_logs(self, folder='Data/UT Export 9-19/', showfig=True,
+                  preload:bool=True,   preload_file:str='Data/log_data.npy',
                   decimate:bool=False, decimate_q:int=10,
                   dxdz:bool=True,      hilbert:bool=True, detrend:bool=True,
                   fourier:bool=True,   fourier_window=[1e-3,0.025], fourier_scale=1e3,
@@ -209,7 +209,7 @@ class BaselineCorrection:
                 This function will load the logs from the saved NumPy file and creates a clean version too.
         '''
         if preload:
-            self.logs = np.load('Data/log_data.npy')
+            self.logs = np.load(preload_file)
             print(self.logs.shape) if self.verbose else None
             logs_clean = np.nan_to_num(self.logs, nan=0)
         else:
@@ -347,7 +347,7 @@ class BaselineCorrection:
     
     def make_model(self, pretrained=None, show_summary:bool=False,
                    kernel_size=15, dropout=0.2, depths=[16,32,64],
-                   optimizer='adam', lr=1e-3, loss='mse', metrics='mse', 
+                   optimizer='adam', lr=1e-3, loss='mse', metrics=['mse'], 
                    epochs=100, batch_size=30, valid_split=0.25, verbose=True,
                    save_name='baseline_correction_model', figsize=(10,5)):
         if pretrained != None:
@@ -431,7 +431,7 @@ class BaselineCorrection:
         self.model = Model(inputs, outputs)
         return self.model if self.return_data else None
     
-    def train_model(self, optimizer='adam', lr=1e-3, wd=1e-5, loss='mse', metrics='mse',
+    def train_model(self, optimizer='adam', lr=1e-3, wd=1e-5, loss='mse', metrics=['mse'],
                     epochs=100, batch_size=32, valid_split=0.25, verbose=True,
                     save_name='baseline_correction_model'):
         if optimizer=='adam':
@@ -440,7 +440,7 @@ class BaselineCorrection:
             opt = optimizers.AdamW(learning_rate=lr, weight_decay=wd)
         elif optimizer=='sgd':
             opt = optimizers.SGD(learning_rate=lr)
-        self.model.compile(optimizer=opt, loss=loss, metrics=[metrics])
+        self.model.compile(optimizer=opt, loss=loss, metrics=metrics)
         self.fit = self.model.fit(self.X_train, self.y_train,
                                 epochs           = epochs,
                                 batch_size       = batch_size,
