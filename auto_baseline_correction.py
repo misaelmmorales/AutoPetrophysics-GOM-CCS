@@ -174,11 +174,34 @@ class SPLogAnalysis:
 ###########################################################################
 class BaselineCorrection:
     def __init__(self):
-        self.log_length  = 44055
-        self.folder      = 'Data/UT Export 9-19/'
-        self.return_data = False
-        self.verbose     = True
-        self.save_fig    = True
+        self.log_length      = 44055
+        self.folder          = 'Data/UT Export 9-19/'
+        self.scaler          = 'standard'
+        self.bounds          = [10, 90]
+
+        self.decimate        = False
+        self.decimate_q      = 10
+        self.dxdz            = True
+        self.hilbert         = True
+        self.detrend         = True
+        self.fourier         = True
+        self.fourier_window  = [1e-3,0.025]
+        self.fourier_scale   = 1e3
+        self.symiir          = True
+        self.symiir_c0       = 0.5
+        self.symiir_z1       = 0.1
+        self.savgol          = True
+        self.savgol_window   = 15
+        self.savgol_order    = 2
+        self.cspline         = True
+        self.spline_lambda   = 0.0
+        self.autocorr        = True
+        self.autocorr_method = 'fft'
+        self.autocorr_mode   = 'same'
+
+        self.return_data     = False
+        self.verbose         = True
+        self.save_fig        = True
         print('\n','-'*30,' Baseline Correction Tool ','-'*30)
         self.check_tf_gpu()
     
@@ -192,153 +215,57 @@ class BaselineCorrection:
             print('-'*60) if self.verbose else None
         return None
 
-    def load_logs(self, folder=None,   showfig=True,
-                  preload:bool=True,   preload_file:str='Data/log_data.npy',
-                  decimate:bool=False, decimate_q:int=10,
-                  dxdz:bool=True,      hilbert:bool=True, detrend:bool=True,
-                  fourier:bool=True,   fourier_window=[1e-3,0.025], fourier_scale=1e3,
-                  symiir:bool=True,    symiir_c0=0.5, symiir_z1=0.1,
-                  savgol:bool=True,    savgol_window=15, savgol_order=2,
-                  cspline:bool=True,   spline_lambda=0.0,
-                  autocorr:bool=True,  autocorr_method='fft', autocorr_mode='same'):
-        '''
-        Load all logs. 
-            If preload=False: 
-                This function will read over each LAS file in the folder and extract the 
-                SP and SP_NORM curves, and then save then into a single NumPy array, along with a 
-                clean version that removes NaNs.
-            If preload=True: 
-                This function will load the logs from the saved NumPy file and creates a clean version too.
-        '''
-        if folder==None:
-            folder = self.folder
-        if preload:
-            self.logs = np.load(preload_file)
-            print(self.logs.shape) if self.verbose else None
-            logs_clean = np.nan_to_num(self.logs, nan=0)
-        else:
-            logs_list = {}
-            files = os.listdir(folder)
-            k = 0
-            for file in tqdm(files, desc='Processing Files', unit='file'):
-                log = lasio.read('{}/{}'.format(folder,file))
-                if 'SP' in log.curvesdict.keys() and 'SP_NORM' in log.curvesdict.keys():
-                    logs_list[k] = pd.DataFrame({'DEPT': log['DEPT'], 'SP': log['SP'], 'SP_NORM': log['SP_NORM']})
-                    k += 1
-            logs = np.zeros((len(logs_list),self.log_length,3))
-            for i in range(len(logs_list)):
-                logs[i,logs_list[i].index,:] = logs_list[i].values
-            self.logs = np.where(logs==0, np.nan, logs)
-            np.save('log_data.npy', self.logs)
-            print(self.logs.shape) if self.verbose else None
-            logs_clean = np.nan_to_num(self.logs, nan=0)
-        if dxdz:
-            def calc_dxdz(l):
-                dxdz = np.zeros((l.shape[0], l.shape[1]))
-                for i in range(l.shape[0]):
-                    dxdz[i,:] = np.gradient(l[i,:,1])
-                return np.expand_dims(dxdz, axis=-1)
-            logs_dxdz = calc_dxdz(self.logs)
-            self.logs = np.concatenate((self.logs, logs_dxdz), axis=-1)
-            print('Well logs with Depth Derivative:', self.logs.shape) if self.verbose else None
-        if autocorr:
-            def calc_autocorr(l):
-                ac = np.zeros((l.shape[0], l.shape[1]))
-                for i in range(l.shape[0]):
-                    ac[i,:] = signal.correlate(l[i,:,1], l[i,:,1], mode=autocorr_mode, method=autocorr_method)
-                return np.expand_dims(ac, axis=-1)
-            logs_ac = calc_autocorr(logs_clean)
-            self.logs = np.concatenate((self.logs, logs_ac), axis=-1)
-            print('Well logs with Autocorrelation:', self.logs.shape) if self.verbose else None
-        if detrend:
-            def calc_detrend(l):
-                dt = np.zeros((l.shape[0], l.shape[1]))
-                for i in range(l.shape[0]):
-                    dt[i,:] = signal.detrend(l[i,:,1])
-                return np.expand_dims(dt, axis=-1)
-            logs_detrend = calc_detrend(logs_clean)
-            self.logs = np.concatenate((self.logs, logs_detrend), axis=-1)
-            print('Well logs with Detrend Filter:', self.logs.shape) if self.verbose else None
-        if fourier:
-            def calc_fourier(l):
-                zfft = np.zeros((l.shape[0], l.shape[1]))
-                for i in range(l.shape[0]):
-                    z = signal.zoom_fft(l[i,:,1], fourier_window)/fourier_scale
-                    zfft[i] = np.real(z) + np.imag(z)
-                return np.expand_dims(zfft, axis=-1)
-            logs_fourier = calc_fourier(logs_clean)
-            self.logs = np.concatenate((self.logs, logs_fourier), axis=-1)
-            print('Well logs with Fourier Transform:', self.logs.shape) if self.verbose else None
-        if hilbert:
-            def calc_hilbert(l):
-                hilb = np.zeros((l.shape[0], l.shape[1]))
-                for i in range(l.shape[0]):
-                    hilb[i,:] = np.abs(signal.hilbert(l[i,:,1]))
-                return np.expand_dims(hilb, axis=-1)
-            logs_hilb = calc_hilbert(logs_clean)
-            self.logs = np.concatenate((self.logs, logs_hilb), axis=-1)
-            print('Well logs with Hilbert Transform:', self.logs.shape) if self.verbose else None
-        if symiir:
-            def calc_symiir(l):
-                symiir = np.zeros((l.shape[0], l.shape[1]))
-                for i in range(l.shape[0]):
-                    symiir[i,:] = signal.symiirorder1(l[i,:,1], symiir_c0, symiir_z1)
-                return np.expand_dims(symiir, axis=-1)
-            logs_symiir = calc_symiir(logs_clean)
-            self.logs = np.concatenate((self.logs, logs_symiir), axis=-1)
-            print('Well logs with Symmetric IIR Filter:', self.logs.shape) if self.verbose else None
-        if savgol:
-            def calc_savgol(l):
-                savgol = np.zeros((l.shape[0], l.shape[1]))
-                for i in range(l.shape[0]):
-                    savgol[i,:] = signal.savgol_filter(l[i,:,1], savgol_window, savgol_order)
-                return np.expand_dims(savgol, axis=-1)
-            logs_savgol = calc_savgol(logs_clean)
-            self.logs = np.concatenate((self.logs, logs_savgol), axis=-1)
-            print('Well logs with Savitzky-Golay Filter:', self.logs.shape) if self.verbose else None
-        if cspline:
-            def calc_cspline(l):
-                spline = np.zeros((l.shape[0], l.shape[1]))
-                for i in range(l.shape[0]):
-                    spline[i,:] = signal.cspline1d(l[i,:,1], lamb=spline_lambda)
-                return np.expand_dims(spline, axis=-1)
-            logs_cspline = calc_cspline(logs_clean)
-            self.logs = np.concatenate((self.logs, logs_cspline), axis=-1)
-            print('Well logs with Cubic Spline:', self.logs.shape) if self.verbose else None
-        self.logs_clean = np.nan_to_num(self.logs, nan=0)
-        self.plot_SP_and_NORM(self.logs, short_title='raw') if showfig else None
-        self.plot_SP_and_NORM(self.logs_clean, short_title='clean') if showfig else None
-        if decimate:
-            self.logs_clean = signal.decimate(self.logs_clean, q=decimate_q, axis=1)
-            print('Well logs decimated by a factor of {}: {}'.format(decimate_q, self.logs_clean.shape)) if self.verbose else None
-        print('-'*60) if self.verbose else None
-        if self.return_data:
-            return self.logs, self.logs_clean
+    def load_logs(self, 
+                    preload:bool     = False,   
+                    preload_file:str = 'Data/log_data.npy',
+                    folder           = None,
+                    save_file:str    = 'Data/log_data.npy',
+                    showfig          = True):
+            '''
+            Load all logs. 
+                If preload=False: 
+                    This function will read over each LAS file in the folder and extract the 
+                    SP and SP_NORM curves, and then save then into a single NumPy array, along with a 
+                    clean version that removes NaNs.
+                If preload=True: 
+                    This function will load the logs from the saved NumPy file and creates a clean version too.
+            '''
+            if folder==None:
+                folder = self.folder
+            if preload:
+                self.logs = np.load(preload_file)
+                print('Well logs raw:', self.logs.shape) if self.verbose else None
+            else:
+                files = os.listdir(folder)
+                logs_list, k = {}, 0
+                for file in tqdm(files, desc='Processing Files', unit=' file(s)'):
+                    log = lasio.read('{}/{}'.format(folder,file))
+                    if 'SP' in log.curvesdict.keys() and 'SP_NORM' in log.curvesdict.keys():
+                        logs_list[k] = pd.DataFrame({'DEPT': log['DEPT'], 'SP': log['SP'], 'SP_NORM': log['SP_NORM']})
+                        k += 1
+                logs = np.zeros((len(logs_list),self.log_length,3))
+                for i in range(len(logs_list)):
+                    logs[i,logs_list[i].index,:] = logs_list[i].values
+                self.logs = np.where(logs==0, np.nan, logs)
+                np.save(save_file, self.logs)
+                print('Well logs raw:', self.logs.shape) if self.verbose else None
+            self.logs_clean = np.nan_to_num(self.logs, nan=0)        
+            self.calc_features()
+            self.plot_SP_and_NORM(data=self.logs, short_title='raw') if showfig else None
+            self.plot_SP_and_NORM(data=self.logs_clean, short_title='clean') if showfig else None
+            print('-'*60) if self.verbose else None
+            if self.return_data:
+                return self.logs, self.logs_clean
    
-    def scale_and_random_split(self, scaler:str='none', test_size=0.227, showfig=True):
-        self.logs_norm = np.zeros_like(self.logs_clean)
-        sd, mu, minvalue, maxvalue = {}, {}, {}, {}
-        if scaler=='standard':
-            for k in range(self.logs_clean.shape[-1]):
-                df = self.logs_clean[...,k]
-                sd[k] = np.nanstd(df)
-                mu[k] = np.nanmean(df)
-                self.logs_norm[...,k] = (df - mu[k]) / sd[k]
-        elif scaler=='minmax':
-            for k in range(self.logs_clean.shape[-1]):
-                df = self.logs_clean[...,k]
-                minvalue[k] = np.nanmin(df)
-                maxvalue[k] = np.nanmax(df)
-                self.logs_norm[...,k] = (df - minvalue[k]) / (maxvalue[k] - minvalue[k])
-        elif scaler=='none':
-            self.logs_norm = self.logs_clean
-        else:
-            raise ValueError('scaler must be "standard", "minmax" or "none"')
+    def scale_and_random_split(self, scaler=None, test_size=0.2, showfig=True):
+        self.datascaler(scaler=scaler)
         self.plot_SP_and_NORM(self.logs_norm, short_title='normalized', xlim=(-5,5)) if showfig else None
-        self.scaler_values = {'sd':sd, 'mu':mu, 'min':minvalue, 'max':maxvalue}
         x = np.delete(self.logs_norm, 2, axis=-1)
         y = np.expand_dims(self.logs_norm[...,2], -1)
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(x, y, test_size=test_size)
+        self.train_idx = np.random.choice(range(x.shape[0]), size=int(x.shape[0]*(1-test_size)), replace=False)
+        self.test_idx  = np.array([i for i in range(x.shape[0]) if i not in self.train_idx])
+        self.X_train, self.X_test = x[self.train_idx], x[self.test_idx]
+        self.y_train, self.y_test = y[self.train_idx], y[self.test_idx]
         if self.verbose:
             print('X_train: {} | X_test: {}'.format(self.X_train.shape, self.X_test.shape))
             print('y_train: {} | y_test: {}'.format(self.y_train.shape, self.y_test.shape))
@@ -394,12 +321,126 @@ class BaselineCorrection:
             self.plot_predictions(train_or_test='test', xlim=xlim)
             self.calc_ensemble_uq(); self.plot_csh_pred('train'); self.plot_csh_pred('test')
         print('-'*60) if self.verbose else None
-        return None
-        
+        return None    
+
     '''
     Auxiliary functions
     '''
-    def make_nn(self, kernel_size=15, drop=0.2, depths=[16,32,64]):
+    def calc_dxdz(self, l):
+        dxdz = np.zeros((l.shape[0], l.shape[1]))
+        for i in range(l.shape[0]):
+            dxdz[i,:] = np.gradient(l[i,:,1])
+        return np.expand_dims(dxdz, axis=-1)
+    
+    def calc_autocorr(self, l, autocorr_mode, autocorr_method):
+        ac = np.zeros((l.shape[0], l.shape[1]))
+        for i in range(l.shape[0]):
+            ac[i,:] = signal.correlate(l[i,:,1], l[i,:,1], mode=autocorr_mode, method=autocorr_method)
+        return np.expand_dims(ac, axis=-1)
+    
+    def calc_detrend(self, l):
+        dt = np.zeros((l.shape[0], l.shape[1]))
+        for i in range(l.shape[0]):
+            dt[i,:] = signal.detrend(l[i,:,1])
+        return np.expand_dims(dt, axis=-1)
+    
+    def calc_fourier(self, l, fourier_window, fourier_scale):
+        zfft = np.zeros((l.shape[0], l.shape[1]))
+        for i in range(l.shape[0]):
+            z = signal.zoom_fft(l[i,:,1], fourier_window)/fourier_scale
+            zfft[i] = np.real(z) + np.imag(z)
+        return np.expand_dims(zfft, axis=-1)
+
+    def calc_hilbert(self, l):
+        hilb = np.zeros((l.shape[0], l.shape[1]))
+        for i in range(l.shape[0]):
+            hilb[i,:] = np.abs(signal.hilbert(l[i,:,1]))
+        return np.expand_dims(hilb, axis=-1)
+    
+    def calc_symiir(self, l, symiir_c0, symiir_z1):
+        symiir = np.zeros((l.shape[0], l.shape[1]))
+        for i in range(l.shape[0]):
+            symiir[i,:] = signal.symiirorder1(l[i,:,1], symiir_c0, symiir_z1)
+        return np.expand_dims(symiir, axis=-1)
+    
+    def calc_savgol(self, l, savgol_window, savgol_order):
+        savgol = np.zeros((l.shape[0], l.shape[1]))
+        for i in range(l.shape[0]):
+            savgol[i,:] = signal.savgol_filter(l[i,:,1], savgol_window, savgol_order)
+        return np.expand_dims(savgol, axis=-1)
+    
+    def calc_cspline(self, l, spline_lambda):
+        spline = np.zeros((l.shape[0], l.shape[1]))
+        for i in range(l.shape[0]):
+            spline[i,:] = signal.cspline1d(l[i,:,1], lamb=spline_lambda)
+        return np.expand_dims(spline, axis=-1)
+
+    def calc_features(self, data=None, data_clean=None):
+        if self.dxdz:
+            logs_dxdz = self.calc_dxdz(self.logs)
+            self.logs = np.concatenate((self.logs, logs_dxdz), axis=-1)
+            print('Well logs with Depth Derivative:', self.logs.shape) if self.verbose else None
+        if self.autocorr:
+            logs_ac   = self.calc_autocorr(self.logs_clean, self.autocorr_mode, self.autocorr_method)
+            self.logs = np.concatenate((self.logs, logs_ac), axis=-1)
+            print('Well logs with Autocorrelation:', self.logs.shape) if self.verbose else None
+        if self.detrend:
+            logs_detrend = self.calc_detrend(self.logs_clean)
+            self.logs = np.concatenate((self.logs, logs_detrend), axis=-1)
+            print('Well logs with Detrend Filter:', self.logs.shape) if self.verbose else None
+        if self.fourier:
+            logs_fourier = self.calc_fourier(self.logs_clean, self.fourier_window, self.fourier_scale)
+            self.logs = np.concatenate((self.logs, logs_fourier), axis=-1)
+            print('Well logs with Fourier Transform:', self.logs.shape) if self.verbose else None
+        if self.hilbert:
+            logs_hilb = self.calc_hilbert(self.logs_clean)
+            self.logs = np.concatenate((self.logs, logs_hilb), axis=-1)
+            print('Well logs with Hilbert Transform:', self.logs.shape) if self.verbose else None
+        if self.symiir:
+            logs_symiir = self.calc_symiir(self.logs_clean, self.symiir_c0, self.symiir_z1)
+            self.logs = np.concatenate((self.logs, logs_symiir), axis=-1)
+            print('Well logs with Symmetric IIR Filter:', self.logs.shape) if self.verbose else None
+        if self.savgol:
+            logs_savgol = self.calc_savgol(self.logs_clean, self.savgol_window, self.savgol_order)
+            self.logs = np.concatenate((self.logs, logs_savgol), axis=-1)
+            print('Well logs with Savitzky-Golay Filter:', self.logs.shape) if self.verbose else None
+        if self.cspline:
+            logs_cspline = self.calc_cspline(self.logs_clean, self.spline_lambda)
+            self.logs = np.concatenate((self.logs, logs_cspline), axis=-1)
+            print('Well logs with Cubic Spline:', self.logs.shape) if self.verbose else None
+        if self.decimate:
+            self.logs_clean = signal.decimate(self.logs_clean, q=self.decimate_q, axis=1)
+            print('Well logs Decimated {}x: {}'.format(self.decimate_q, self.logs_clean.shape)) if self.verbose else None
+        self.logs_clean = np.nan_to_num(self.logs, nan=0)
+        return self.logs if self.return_data else None
+
+    def datascaler(self, scaler=None, data=None):
+        if scaler==None:
+            scaler = self.scaler
+        if data==None:
+            data = self.logs_clean
+        self.logs_norm = np.zeros_like(data)
+        sd, mu, minvalue, maxvalue = {}, {}, {}, {}
+        if scaler=='standard':
+            for k in range(data.shape[-1]):
+                df = data[...,k]
+                sd[k] = np.nanstd(df)
+                mu[k] = np.nanmean(df)
+                self.logs_norm[...,k] = (df - mu[k]) / sd[k]
+        elif scaler=='minmax':
+            for k in range(data.shape[-1]):
+                df = data[...,k]
+                minvalue[k] = np.nanmin(df)
+                maxvalue[k] = np.nanmax(df)
+                self.logs_norm[...,k] = (df - minvalue[k]) / (maxvalue[k] - minvalue[k])
+        elif scaler=='none':
+            self.logs_norm = data
+        else:
+            raise ValueError('scaler must be "standard", "minmax" or "none"')
+        self.scaler_values = {'sd':sd, 'mu':mu, 'min':minvalue, 'max':maxvalue}
+        return self.logs_norm if self.return_data else None
+
+    def make_nn(self, kernel_size:int=15, drop=0.2, depths=[16,32,64]):
         K.clear_session()
         ndata, nchannels = self.X_train.shape[1], self.X_train.shape[2]
         def enc_layer(inp, units):
@@ -435,15 +476,17 @@ class BaselineCorrection:
         self.model = Model(inputs, outputs)
         return self.model if self.return_data else None
     
-    def train_model(self, optimizer='adam', lr=1e-3, wd=1e-5, loss='mse', metrics=['mse'],
-                    epochs=100, batch_size=32, valid_split=0.25, verbose=True,
-                    save_name='baseline_correction_model'):
+    def train_model(self, optimizer:str='adam', lr=1e-3, wd=1e-5, loss='mse', metrics=['mse'],
+                    epochs:int=100, batch_size:int=32, valid_split=0.25, verbose:bool=True,
+                    save_name:str='baseline_correction_model'):
         if optimizer=='adam':
             opt = optimizers.Adam(learning_rate=lr)
         elif optimizer=='adamw':
             opt = optimizers.AdamW(learning_rate=lr, weight_decay=wd)
         elif optimizer=='sgd':
             opt = optimizers.SGD(learning_rate=lr)
+        else:
+            raise ValueError('optimizer must be "adam", "adamw" or "sgd"')
         self.model.compile(optimizer=opt, loss=loss, metrics=metrics)
         self.fit = self.model.fit(self.X_train, self.y_train,
                                 epochs           = epochs,
@@ -465,7 +508,7 @@ class BaselineCorrection:
         plt.show()
         return None
 
-    def plot_features(self, train_or_test:str='train', nrows=5, ncols=10, mult=1, figsize=(20,12),
+    def plot_features(self, train_or_test:str='train', nrows:int=5, ncols:int=10, mult:int=1, figsize=(20,12),
                     feature_names=['Depth','SP','dxdz','AutoCorrelation','Detrend','FFT',
                                    'Hilbert','SymIIR','Savitzky-Golay','Cubic Splines'],
                     colors=['tab:gray','tab:red','tab:orange','tab:olive','tab:green',
@@ -492,7 +535,8 @@ class BaselineCorrection:
         plt.show()
         return None
 
-    def plot_predictions(self, train_or_test:str='train', xlim=(-200,50), nrows=3, ncols=8, mult=1, figsize=(20,12)):
+    def plot_predictions(self, train_or_test:str='train', xlim=(-200,50), 
+                         nrows:int=3, ncols:int=8, mult:int=1, figsize=(20,12)):
         fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
         if train_or_test=='train':
             x, y, yh = self.X_train, self.y_train, self.y_train_pred
@@ -521,7 +565,8 @@ class BaselineCorrection:
         plt.show()
         return None
 
-    def plot_SP_and_NORM(self, data=None, nrows=3, ncols=10, mult=1, figsize=(20,12), xlim=(-200,50), short_title:str='clean'):
+    def plot_SP_and_NORM(self, data=None, short_title:str='clean',
+                         nrows:int=3, ncols:int=10, mult:int=1, figsize=(20,12), xlim=(-200,50)):
         fig, axs = plt.subplots(nrows, ncols, figsize=figsize, sharey=True)
         k = 0
         d = self.logs_clean if data is None else data
@@ -543,20 +588,21 @@ class BaselineCorrection:
         plt.show()
         return None
     
-    def calc_ensemble_uq(self, data=None, bounds=[10,90], showfig:bool=True, sample_log:int=5, figsize=(5,7), colors=['darkred','red']):
+    def calc_ensemble_uq(self, data=None, sample_log:int=5,
+                         showfig:bool=True, figsize=(5,7), colors=['darkred','red']):
         if data is None:
             data, sample, index = self.logs[...,2], self.logs[sample_log,:,2], self.logs[sample_log,:,0]
         else:
             data, sample, index = data[...,2], data[sample_log,:,2], data[sample_log,:,0]
-        lb = np.nanpercentile(data, bounds[0], axis=0)
+        lb = np.nanpercentile(data, self.bounds[0], axis=0)
         mu = np.nanpercentile(data, 50, axis=0)
-        ub = np.nanpercentile(data, bounds[1], axis=0)
+        ub = np.nanpercentile(data, self.bounds[1], axis=0)
         if showfig:
             plt.figure(figsize=figsize)
             plt.plot(sample, index, 'darkmagenta', label='Sample Log (#{})'.format(sample_log))
-            plt.plot(lb,     index, color=colors[0], label='P{}'.format(bounds[0]))
+            plt.plot(lb,     index, color=colors[0], label='P{}'.format(self.bounds[0]))
             plt.plot(mu,     index, color=colors[1], label='P50')
-            plt.plot(ub,     index, color=colors[0], label='P{}'.format(bounds[1]))
+            plt.plot(ub,     index, color=colors[0], label='P{}'.format(self.bounds[1]))
             plt.fill_betweenx(index, lb, ub, color=colors[0], alpha=0.5)
             plt.xlabel('SP [mV]', weight='bold'); plt.ylabel('Depth [ft]', weight='bold')
             plt.title('Ensemble UQ', weight='bold')
@@ -569,8 +615,8 @@ class BaselineCorrection:
         self.ens_uq = {'lb':lb, 'mu':mu, 'ub':ub}
         return self.ens_uq if self.return_data else None
     
-    def plot_csh_pred(self, train_or_test:str='train', bounds=[10,90],
-                      showfig:bool=True, nrows=3, ncols=10, mult:int=1, x2lim=None, 
+    def plot_csh_pred(self, train_or_test:str='train',
+                      showfig:bool=True, nrows:int=3, ncols:int=10, mult:int=1, x2lim=None, 
                       colors=['darkmagenta','tab:blue','tab:green'], figsize=(20,12)):
         if train_or_test=='train':
             yh, idx = self.y_train_pred, self.X_train[...,0]
@@ -582,8 +628,8 @@ class BaselineCorrection:
         csh_uncert = np.zeros((yh.shape[0], yh.shape[1]))
         for i in range(yh.shape[0]):
             d = yh[i]
-            lb = np.percentile(d, bounds[0])
-            ub = np.percentile(d, bounds[1])
+            lb = np.percentile(d, self.bounds[0])
+            ub = np.percentile(d, self.bounds[1])
             csh_linear[i] = (d - d.min()) / (d.max() - d.min())
             z = (d - lb) / (ub - lb)
             csh_uncert[i] = (z - z.min()) / (z.max() - z.min())
@@ -605,6 +651,80 @@ class BaselineCorrection:
             plt.savefig('figures/csh_uq_{}.png'.format(train_or_test), dpi=300) if self.save_fig else None
             plt.show()
         return self.csh if self.return_data else None
+    
+###########################################################################
+################## TRANSFER LEARNING BASELINE CORRECTION ##################
+###########################################################################
+class TransferLearning(BaselineCorrection):
+    def __init__(self):
+        super().__init__()
+        self.in_folder  = 'Data/UT Export 9-19'
+        self.out_folder = 'Data/UT Export postprocess'
+    
+    def make_transfer_prediction(self):
+        files = os.listdir(self.in_folder)
+        for file in tqdm(files, desc='Transfer Learning predictions', unit=' file(s)'):
+            log_las = lasio.read('{}/{}'.format(self.in_folder, file))
+            if 'SP' in log_las.curvesdict.keys():
+                self.log_df = pd.DataFrame({'DEPT': log_las['DEPT'], 'SP': log_las['SP']})
+                self.log    = np.array(self.log_df)
+                self.calc_transfer_features()
+                self.datascaler(data=self.log)
+                self.sp_pred  = self.model.predict(np.expand_dims(self.log,-1)).squeeze().astype('float32')
+                self.csh_pred = self.calc_csh()
+                log_las.append_curve('SP_PRED', self.sp_pred)
+                log_las.append_curve('CSH_PRED', self.csh_pred)
+                log_las.write('{}/{}'.format(self.out_folder, file))
+        return None
+
+    '''
+    Auxiliary functions
+    '''
+    def calc_csh(self, d=None):
+        if d==None:
+            d = self.sp_pred
+        lb = np.percentile(self.sp_pred, self.bounds[0])
+        ub = np.percentile(self.sp_pred, self.bounds[1])
+        z          = (d-lb) / (ub-lb)
+        csh_uncert = (z-z.min()) / (z.max()-z.min())
+        return csh_uncert
+
+    def calc_transfer_features(self):                
+        if self.dxdz:
+            log_dxdz = self.calc_dxdz(self.log)
+            self.log = np.concatenate([self.log, log_dxdz], axis=-1)
+            print('Log with Depth Derivative:', self.log.shape) if self.verbose else None
+        if self.autocorr:
+            log_ac = self.calc_autocorr(self.log, self.autocorr_mode, self.autocorr_method)
+            self.log = np.concatenate([self.log, log_ac], axis=-1)
+            print('Log with Autocorrelation:', self.log.shape) if self.verbose else None
+        if self.detrend:
+            log_detrend = self.calc_detrend(self.log)
+            self.log = np.concatenate([self.log, log_detrend], axis=-1)
+            print('Log with Detrend filter:', self.log.shape) if self.verbose else None
+        if self.fourier:
+            log_fft = self.calc_fourier(self.log, self.fourier_window, self.fourier_scale)
+            self.log = np.concatenate([self.log, log_fft], axis=-1)
+            print('Log with Fourier Transform:', self.log.shape) if self.verbose else None
+        if self.hilbert:
+            log_hilbert = self.calc_hilbert(self.log)
+            self.log = np.concatenate([self.log, log_hilbert], axis=-1)
+            print('Log with Hilbert Transform:', self.log.shape) if self.verbose else None
+        if self.symiir:
+            log_symiir = self.calc_symiir(self.log, self.symiir_c0, self.symiir_z1)
+            self.log = np.concatenate([self.log, log_symiir], axis=-1)
+            print('Log with Symmetric IIR filter:', self.log.shape) if self.verbose else None
+        if self.savgol:
+            log_savgol = self.calc_savgol(self.log, self.savgol_window, self.savgol_order)
+            self.log = np.concatenate([self.log, log_savgol], axis=-1)
+            print('Log with Savitzky-Golay filter:', self.log.shape) if self.verbose else None
+        if self.cspline:
+            log_cspline = self.calc_cspline(self.log, self.spline_lambda)
+            self.log = np.concatenate([self.log, log_cspline], axis=-1)
+            print('Log with Cubic Spline:', self.log.shape) if self.verbose else None
+        if self.decimate:
+            log_decimate = signal.decimate(self.log, q=self.decimate_q, axis=1)
+            print('Well log Decimated {}x: {}'.format(self.decimate_q, log_decimate.shape)) if self.verbose else None
 
 ###########################################################################
 ############################## MAIN ROUTINE ###############################
@@ -612,18 +732,22 @@ class BaselineCorrection:
 
 if __name__ == '__main__':
 
-    ### Log analysis
+    ### Log Analysis
     spl = SPLogAnalysis()
     spl.plot_ccs_sand_wells()
     spl.plot_survey()
     spl.plot_well('17700004060000')
 
-    ### Baseline Correction
+    ### Automatic Baseline Correction
     blc = BaselineCorrection()
-    blc.load_logs(preload=True)
-    blc.scale_and_random_split(scaler='standard')
-    blc.make_model(pretrained=None)
+    blc.load_logs()
+    blc.scale_and_random_split()
+    blc.make_model()
     blc.make_predictions()
+
+    ### Transfer Learning Baseline Correction
+    tlc = TransferLearning()
+    tlc.make_transfer_prediction()
 
 ###########################################################################
 ################################## END ####################################
