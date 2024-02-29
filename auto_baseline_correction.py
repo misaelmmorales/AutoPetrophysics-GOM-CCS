@@ -457,8 +457,11 @@ class BaselineCorrection:
             _ = layers.UpSampling1D(2)(_)
             return _
         def residual_cat(in1, in2):
-            _ = layers.ZeroPadding1D((1,0))(in2)
-            _ = layers.Concatenate()([in1, _])
+            pad_length = tf.shape(in1)[1] - tf.shape(in2)[1]
+            pad_width  = tf.math.maximum(pad_length, 0)
+            if pad_width > 0:
+                in2 = layers.ZeroPadding1D((0,pad_width))(in2)
+            _ = layers.Concatenate()([in1, in2])
             return _
         def out_layer(inp, units):
             _ = dec_layer(inp, units)
