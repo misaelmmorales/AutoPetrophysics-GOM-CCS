@@ -1,4 +1,5 @@
 import os
+import time
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -796,8 +797,10 @@ class TransferLearning(BaselineCorrection):
 #     ### Transfer Learning Baseline Correction
 #     tlc = TransferLearning()
 #     tlc.make_transfer_prediction()
-            
+
 if __name__ == '__main__':
+    time0 = time.time()
+
     ### Log Analysis
     spl = SPLogAnalysis()
     spl.plot_ccs_sand_wells(figsize=(8,3), value='POROSITY', cmap='jet')
@@ -837,6 +840,9 @@ if __name__ == '__main__':
     ### Transfer Learning Baseline Correction
     tlc = TransferLearning()
     tlc.make_transfer_prediction()
+
+    ### exit
+    print('-'*60,'\n','Elapsed time: {:.3f} seconds'.format(time.time()-time0))
 
 ###########################################################################
 ################################## END ####################################
