@@ -290,7 +290,7 @@ class BaselineCorrection:
             if self.return_data:
                 return self.model, self.encoder
         elif pretrained == None:
-            self.make_nn(kernel_size=kernel_size, drop=dropout, depths=depths)
+            self.make_nn(kernel_size=kernel_size, drop=dropout, depths=depths, in_channels=self.X_train.shape[-1])
             print('-'*50,'\n','# Parameters: {:,}'.format(self.model.count_params())) if self.verbose else None
             self.model.summary() if show_summary else None
             self.train_model(optimizer=optimizer, lr=lr, loss=loss, metrics=metrics, 
@@ -375,7 +375,7 @@ class BaselineCorrection:
             spline[i,:] = signal.cspline1d(l[i,:,1], lamb=spline_lambda)
         return np.expand_dims(spline, axis=-1)
 
-    def calc_features(self, data=None, data_clean=None):
+    def calc_features(self):
         if self.dxdz:
             logs_dxdz = self.calc_dxdz(self.logs)
             self.logs = np.concatenate((self.logs, logs_dxdz), axis=-1)
@@ -436,13 +436,12 @@ class BaselineCorrection:
         elif scaler=='none':
             self.logs_norm = data
         else:
-            raise ValueError('scaler must be "standard", "minmax" or "none"')
+            raise ValueError('Invalid scaler. Choose a scaler from ("standard", "minmax" or "none")')
         self.scaler_values = {'sd':sd, 'mu':mu, 'min':minvalue, 'max':maxvalue}
         return self.logs_norm if self.return_data else None
 
-    def make_nn(self, kernel_size:int=15, drop=0.2, depths=[16,32,64]):
+    def make_nn(self, kernel_size:int=15, drop=0.2, depths=[16,32,64], in_channels=10):
         K.clear_session()
-        ndata, nchannels = self.X_train.shape[1], self.X_train.shape[2]
         def enc_layer(inp, units):
             _ = layers.Conv1D(units, kernel_size, padding='same')(inp)
             _ = layers.BatchNormalization()(_)
@@ -466,7 +465,7 @@ class BaselineCorrection:
             _ = layers.ZeroPadding1D((1,0))(_)
             _ = layers.Conv1D(1, kernel_size, padding='same', activation='linear')(_)
             return _
-        inputs  = layers.Input(shape=(ndata, nchannels))
+        inputs  = layers.Input(shape=(None, in_channels))
         enc1    = enc_layer(inputs, depths[0])
         enc2    = enc_layer(enc1,   depths[1])
         zlatent = enc_layer(enc2,   depths[2])
@@ -660,6 +659,7 @@ class TransferLearning(BaselineCorrection):
         super().__init__()
         self.in_folder  = 'Data/UT Export 9-19'
         self.out_folder = 'Data/UT Export postprocess'
+        self.model      = keras.models.load_model('baseline_correction_model.keras')
     
     def make_transfer_prediction(self):
         files = os.listdir(self.in_folder)
@@ -668,11 +668,14 @@ class TransferLearning(BaselineCorrection):
             if 'SP' in log_las.curvesdict.keys():
                 self.log_df = pd.DataFrame({'DEPT': log_las['DEPT'], 'SP': log_las['SP']})
                 self.log    = np.array(self.log_df)
+                print('Log raw:', self.log.shape) if self.verbose else None
                 self.calc_transfer_features()
-                self.datascaler(data=self.log)
-                self.sp_pred  = self.model.predict(np.expand_dims(self.log,-1)).squeeze().astype('float32')
+                self.transfer_scaler()
+                d = np.expand_dims(self.log,0)
+                self.sp_pred  = self.model.predict(d).squeeze().astype('float32')
                 self.csh_pred = self.calc_csh()
-                log_las.append_curve('SP_PRED', self.sp_pred)
+                self.sp_pred_bt = self.transfer_scaler(mode='backtransform', inv_data=self.sp_pred)
+                log_las.append_curve('SP_PRED', self.sp_pred_bt)
                 log_las.append_curve('CSH_PRED', self.csh_pred)
                 log_las.write('{}/{}'.format(self.out_folder, file))
         return None
@@ -688,62 +691,145 @@ class TransferLearning(BaselineCorrection):
         z          = (d-lb) / (ub-lb)
         csh_uncert = (z-z.min()) / (z.max()-z.min())
         return csh_uncert
+    
+    def transfer_scaler(self, mode='transform', inv_data=None):
+        if mode=='transform':
+            sd, mu, minvalue, maxvalue = {}, {}, {}, {}
+            self.log_norm = np.zeros_like(self.log)
+            if self.scaler=='standard':
+                for k in range(self.log.shape[-1]):
+                    df = self.log[...,k]
+                    sd[k] = np.nanstd(df)
+                    mu[k] = np.nanmean(df)
+                    self.log_norm[...,k] = (df - mu[k]) / sd[k]
+            elif self.scaler=='minmax':
+                for k in range(self.log.shape[-1]):
+                    df = self.log[...,k]
+                    minvalue[k] = np.nanmin(df)
+                    maxvalue[k] = np.nanmax(df)
+                    self.log_norm[...,k] = (df - minvalue[k]) / (maxvalue[k] - minvalue[k])
+            elif self.scaler=='none':
+                self.log_norm = self.log
+            else:
+                raise ValueError('Invalid scaler. Choose a scaler from ("standard", "minmax" or "none")')
+            self.scaler_values = {'sd':sd, 'mu':mu, 'min':minvalue, 'max':maxvalue}
+            return self.log_norm if self.return_data else None
+        elif mode=='backtransform':
+            self.log_backtransform = np.zeros_like(self.log)
+            if self.scaler=='standard':
+                for k in range(self.log.shape[-1]):
+                    p = inv_data[...,k] * self.scaler_values['sd'][k]
+                    q = self.scaler_values['mu'][k]
+                    self.log_backtransform[...,k] = p + q 
+            elif self.scaler=='minmax':
+                for k in range(self.log.shape[-1]):
+                    p = inv_data[...,k] * (self.scaler_values['max'][k] - self.scaler_values['min'][k])
+                    q = self.scaler_values['min'][k]
+                    self.log_backtransform[...,k] = p + q
+            elif self.scaler=='none':
+                self.log_backtransform = inv_data
+            else:
+                raise ValueError('Invalid scaler. Choose a scaler from ("standard", "minmax" or "none")')
+        else:
+            raise ValueError('Invalid mode. Choose a mode from ("transform" or "backtransform")')
 
-    def calc_transfer_features(self):                
+    def calc_transfer_features(self):  
+        d = self.log[:,1]              
         if self.dxdz:
-            log_dxdz = self.calc_dxdz(self.log)
-            self.log = np.concatenate([self.log, log_dxdz], axis=-1)
+            log_dxdz = np.gradient(d)
+            self.log = np.concatenate([self.log, np.expand_dims(log_dxdz,-1)], axis=-1)
             print('Log with Depth Derivative:', self.log.shape) if self.verbose else None
         if self.autocorr:
-            log_ac = self.calc_autocorr(self.log, self.autocorr_mode, self.autocorr_method)
-            self.log = np.concatenate([self.log, log_ac], axis=-1)
+            log_ac   = signal.correlate(d, d, mode=self.autocorr_mode, method=self.autocorr_method)
+            self.log = np.concatenate([self.log, np.expand_dims(log_ac,-1)], axis=-1)
             print('Log with Autocorrelation:', self.log.shape) if self.verbose else None
         if self.detrend:
-            log_detrend = self.calc_detrend(self.log)
-            self.log = np.concatenate([self.log, log_detrend], axis=-1)
+            log_detrend = signal.detrend(d)
+            self.log = np.concatenate([self.log, np.expand_dims(log_detrend,-1)], axis=-1)
             print('Log with Detrend filter:', self.log.shape) if self.verbose else None
         if self.fourier:
-            log_fft = self.calc_fourier(self.log, self.fourier_window, self.fourier_scale)
-            self.log = np.concatenate([self.log, log_fft], axis=-1)
+            log_fft  = signal.zoom_fft(d, self.fourier_window)/self.fourier_scale
+            self.log = np.concatenate([self.log, np.expand_dims(log_fft,-1)], axis=-1)
             print('Log with Fourier Transform:', self.log.shape) if self.verbose else None
         if self.hilbert:
-            log_hilbert = self.calc_hilbert(self.log)
-            self.log = np.concatenate([self.log, log_hilbert], axis=-1)
+            log_hilbert = np.abs(signal.hilbert(d))
+            self.log = np.concatenate([self.log, np.expand_dims(log_hilbert,-1)], axis=-1)
             print('Log with Hilbert Transform:', self.log.shape) if self.verbose else None
         if self.symiir:
-            log_symiir = self.calc_symiir(self.log, self.symiir_c0, self.symiir_z1)
-            self.log = np.concatenate([self.log, log_symiir], axis=-1)
+            log_symiir = signal.symiirorder1(d, self.symiir_c0, self.symiir_z1)
+            self.log = np.concatenate([self.log, np.expand_dims(log_symiir,-1)], axis=-1)
             print('Log with Symmetric IIR filter:', self.log.shape) if self.verbose else None
         if self.savgol:
-            log_savgol = self.calc_savgol(self.log, self.savgol_window, self.savgol_order)
-            self.log = np.concatenate([self.log, log_savgol], axis=-1)
+            log_savgol = signal.savgol_filter(d, self.savgol_window, self.savgol_order)
+            self.log = np.concatenate([self.log, np.expand_dims(log_savgol,-1)], axis=-1)
             print('Log with Savitzky-Golay filter:', self.log.shape) if self.verbose else None
         if self.cspline:
-            log_cspline = self.calc_cspline(self.log, self.spline_lambda)
-            self.log = np.concatenate([self.log, log_cspline], axis=-1)
+            log_cspline = signal.cspline1d(d, lamb=self.spline_lambda)
+            self.log = np.concatenate([self.log, np.expand_dims(log_cspline,-1)], axis=-1)
             print('Log with Cubic Spline:', self.log.shape) if self.verbose else None
         if self.decimate:
-            log_decimate = signal.decimate(self.log, q=self.decimate_q, axis=1)
-            print('Well log Decimated {}x: {}'.format(self.decimate_q, log_decimate.shape)) if self.verbose else None
+            self.log_decimate = signal.decimate(d, q=self.decimate_q, axis=1)
+            print('Well log Decimated {}x: {}'.format(self.decimate_q, self.log_decimate.shape)) if self.verbose else None
+
 
 ###########################################################################
 ############################## MAIN ROUTINE ###############################
 ###########################################################################
+# if __name__ == '__main__':
 
+#     ### Log Analysis
+#     spl = SPLogAnalysis()
+#     spl.plot_ccs_sand_wells()
+#     spl.plot_survey()
+#     spl.plot_well('17700004060000')
+
+#     ### Automatic Baseline Correction
+#     blc = BaselineCorrection()
+#     blc.load_logs()
+#     blc.scale_and_random_split()
+#     blc.make_model()
+#     blc.make_predictions()
+
+#     ### Transfer Learning Baseline Correction
+#     tlc = TransferLearning()
+#     tlc.make_transfer_prediction()
+            
 if __name__ == '__main__':
-
     ### Log Analysis
     spl = SPLogAnalysis()
-    spl.plot_ccs_sand_wells()
-    spl.plot_survey()
-    spl.plot_well('17700004060000')
+    spl.plot_ccs_sand_wells(figsize=(8,3), value='POROSITY', cmap='jet')
+    spl.plot_survey(figsize=(10,3), fname='427064023000_DIRSUR_NAD27(USFEET)US-SPC27-EXACT(TX-27SC).TXT')
+    spl.plot_well(figsize=(10,8), well_name='17700004060000', curve='SP', order=(5,1,0))
 
     ### Automatic Baseline Correction
     blc = BaselineCorrection()
-    blc.load_logs()
-    blc.scale_and_random_split()
-    blc.make_model()
-    blc.make_predictions()
+    blc.load_logs(preload      = False,
+                  preload_file = 'Data/log_data.npy',
+                  folder       = 'Data/UT Export 9-19',
+                  save_file    = 'Data/log_data.npy',
+                  showfig      = True,
+                  )    
+    blc.scale_and_random_split(scaler    = 'standard', 
+                               test_size = 0.227, 
+                               showfig   = True)
+    blc.make_model(pretrained   = None,
+                   show_summary = True, 
+                   kernel_size  = 15, 
+                   dropout      = 0.2,
+                   depths       = [16,32,64], 
+                   optimizer    = 'adam',
+                   lr           = 1e-3,
+                   loss         = 'mse',
+                   metrics      = ['mse'],
+                   epochs       = 100,
+                   batch_size   = 30,
+                   valid_split  = 0.25,
+                   verbose      = True,
+                   figsize      = (10,5),
+                   )
+    blc.make_predictions(showfig=True,
+                         xlim=(-5,5),
+                         )
 
     ### Transfer Learning Baseline Correction
     tlc = TransferLearning()
