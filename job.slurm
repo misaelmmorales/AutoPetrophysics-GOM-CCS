@@ -16,4 +16,4 @@ pwd
 date
 
 # Run the program
-python3 auto_baseline_correction.py
+python3 auto_baseline_correction.py 2>&1 | tee out.txt

@@ -1,5 +1,4 @@
-import os
-import time
+import os, time
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -8,7 +7,6 @@ import lasio
 from tqdm import tqdm
 from scipy import stats, signal
 from statsmodels.tsa.arima.model import ARIMA
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 
 import keras
@@ -441,7 +439,7 @@ class BaselineCorrection:
         self.scaler_values = {'sd':sd, 'mu':mu, 'min':minvalue, 'max':maxvalue}
         return self.logs_norm if self.return_data else None
 
-    def make_nn(self, kernel_size:int=15, drop=0.2, depths=[16,32,64], in_channels=10):
+    def make_nn(self, kernel_size:int=15, drop=0.2, depths=[16,32,64], in_channels:int=10):
         K.clear_session()
         def enc_layer(inp, units):
             _ = layers.Conv1D(units, kernel_size, padding='same')(inp)
@@ -458,27 +456,24 @@ class BaselineCorrection:
             _ = layers.UpSampling1D(2)(_)
             return _
         def residual_cat(in1, in2):
-            pad_length = tf.shape(in1)[1] - tf.shape(in2)[1]
-            pad_width  = tf.math.maximum(pad_length, 0)
-            if pad_width > 0:
-                in2 = layers.ZeroPadding1D((0,pad_width))(in2)
-            _ = layers.Concatenate()([in1, in2])
+            _ = layers.ZeroPadding1D((0,1))(in2) #(1,0) 
+            _ = layers.Concatenate()([in1, _])
             return _
         def out_layer(inp, units):
             _ = dec_layer(inp, units)
-            _ = layers.ZeroPadding1D((1,0))(_)
             _ = layers.Conv1D(1, kernel_size, padding='same', activation='linear')(_)
+            _ = layers.ZeroPadding1D((0,1))(_) #(1,0)
             return _
         inputs  = layers.Input(shape=(None, in_channels))
         enc1    = enc_layer(inputs, depths[0])
-        enc2    = enc_layer(enc1,   depths[1])
-        zlatent = enc_layer(enc2,   depths[2])
+        enc2    = enc_layer(enc1, depths[1])
+        zlatent = enc_layer(enc2, depths[2])
         dec3    = residual_cat(enc2, dec_layer(zlatent, depths[1]))
-        dec2    = residual_cat(enc1, dec_layer(dec3,    depths[0]))
+        dec2    = residual_cat(enc1, dec_layer(dec3, depths[0]))
         outputs = out_layer(dec2, 4)
-        self.model = Model(inputs, outputs)
+        self.model = Model(inputs, outputs, name='baseline_correction')
         return self.model if self.return_data else None
-    
+
     def train_model(self, optimizer:str='adam', lr=1e-3, wd=1e-5, loss='mse', metrics=['mse'],
                     epochs:int=100, batch_size:int=32, valid_split=0.25, verbose:bool=True,
                     save_name:str='baseline_correction_model'):
@@ -809,15 +804,18 @@ if __name__ == '__main__':
 
     ### Automatic Baseline Correction
     blc = BaselineCorrection()
-    blc.load_logs(preload      = False,
+    blc.load_logs(preload      = True,
                   preload_file = 'Data/log_data.npy',
                   folder       = 'Data/UT Export 9-19',
                   save_file    = 'Data/log_data.npy',
                   showfig      = True,
                   )    
+    
     blc.scale_and_random_split(scaler    = 'standard', 
                                test_size = 0.227, 
-                               showfig   = True)
+                               showfig   = True,
+                               )
+    
     blc.make_model(pretrained   = None,
                    show_summary = True, 
                    kernel_size  = 15, 
@@ -833,6 +831,7 @@ if __name__ == '__main__':
                    verbose      = True,
                    figsize      = (10,5),
                    )
+    
     blc.make_predictions(showfig=True,
                          xlim=(-5,5),
                          )
