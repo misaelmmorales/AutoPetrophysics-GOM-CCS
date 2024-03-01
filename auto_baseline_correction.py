@@ -1,6 +1,6 @@
 ############################################################################
-#   AUTOMATIC BASELINE CORRECTION FOR RAPID CHARACTERIZATION OF POTENTIAL  #
-#        CO2 STORAGE SITES IN THE GULF OF MEXICO USING DEEP LEARNING       #
+#     AUTOMATIC WELL LOG BASELINE CORRECTION FOR RAPID CHARACTERIZATION    #
+# OF POTENTIAL CO2 STORAGE SITES IN THE GULF OF MEXICO USING DEEP LEARNING #
 ############################################################################
 # Author: Misael M. Morales (github.com/misaelmmorales)                    #
 # Co-Authors: Dr. Michael Pyrcz, Dr. Carlos Torres-Verdin - UT Austin      #
