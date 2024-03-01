@@ -666,12 +666,18 @@ class TransferLearning(BaselineCorrection):
             log_las = lasio.read('{}/{}'.format(self.in_folder, file))
             if 'SP' in log_las.curvesdict.keys():
                 self.log_df = pd.DataFrame({'DEPT': log_las['DEPT'], 'SP': log_las['SP']})
-                self.log    = np.array(self.log_df)
+                self.log    = np.nan_to_num(np.array(self.log_df), nan=0)
                 print('Log raw:', self.log.shape) if self.verbose else None
                 self.calc_transfer_features()
                 self.transfer_scaler()
-                d = np.expand_dims(self.log,0)
+                d = np.expand_dims(self.log, 0)
+                size = d.shape[1]
+                if size != 44055:
+                    d = np.pad(d, ((0,0),(0,44055-size),(0,0)), mode='constant', constant_values=0.)
+                    d = layers.Masking(mask_value=0.)(d)
                 self.sp_pred  = self.model.predict(d).squeeze().astype('float32')
+                if size != 44055:
+                    self.sp_pred = self.sp_pred[:size]
                 self.csh_pred = self.calc_csh()
                 self.sp_pred_bt = self.transfer_scaler(mode='backtransform', inv_data=self.sp_pred)
                 log_las.append_curve('SP_PRED', self.sp_pred_bt)
@@ -774,36 +780,19 @@ class TransferLearning(BaselineCorrection):
 ###########################################################################
 ############################## MAIN ROUTINE ###############################
 ###########################################################################
-# if __name__ == '__main__':
-
-#     ### Log Analysis
-#     spl = SPLogAnalysis()
-#     spl.plot_ccs_sand_wells()
-#     spl.plot_survey()
-#     spl.plot_well('17700004060000')
-
-#     ### Automatic Baseline Correction
-#     blc = BaselineCorrection()
-#     blc.load_logs()
-#     blc.scale_and_random_split()
-#     blc.make_model()
-#     blc.make_predictions()
-
-#     ### Transfer Learning Baseline Correction
-#     tlc = TransferLearning()
-#     tlc.make_transfer_prediction()
-
 if __name__ == '__main__':
     time0 = time.time()
 
     ### Log Analysis
     spl = SPLogAnalysis()
+    spl.__dict__
     spl.plot_ccs_sand_wells(figsize=(8,3), value='POROSITY', cmap='jet')
     spl.plot_survey(figsize=(10,3), fname='427064023000_DIRSUR_NAD27(USFEET)US-SPC27-EXACT(TX-27SC).TXT')
     spl.plot_well(figsize=(10,8), well_name='17700004060000', curve='SP', order=(5,1,0))
 
     ### Automatic Baseline Correction
     blc = BaselineCorrection()
+    blc.__dict__
     blc.load_logs(preload      = True,
                   preload_file = 'Data/log_data.npy',
                   folder       = 'Data/UT Export 9-19',
@@ -838,6 +827,7 @@ if __name__ == '__main__':
 
     ### Transfer Learning Baseline Correction
     tlc = TransferLearning()
+    tlc.__dict__
     tlc.make_transfer_prediction()
 
     ### exit
