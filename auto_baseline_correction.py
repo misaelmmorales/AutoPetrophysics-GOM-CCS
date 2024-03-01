@@ -42,7 +42,6 @@ class SPLogAnalysis:
         return self.headers if self.return_data else None
 
     ### PLOTTING ###
-
     def plot_curve(self, ax, df, curve, lb, ub, color='k', size=2, pad=1, mult=1,
                 semilog=False, bar=False, units=None, alpha=None, 
                 marker=None, linestyle=None, fill=None, rightfill=False):
@@ -668,9 +667,10 @@ class TransferLearning(BaselineCorrection):
                 self.log_df = pd.DataFrame({'DEPT': log_las['DEPT'], 'SP': log_las['SP']})
                 self.log    = np.nan_to_num(np.array(self.log_df), nan=0)
                 print('Log raw:', self.log.shape) if self.verbose else None
-                self.calc_transfer_features()
+                self.calc_transfer_features(verbose=False)
+                print('Log expanded:', self.log.shape) if self.verbose else None
                 self.transfer_scaler()
-                d = np.expand_dims(self.log, 0)
+                d = np.expand_dims(self.log_norm, 0)
                 size = d.shape[1]
                 if size != 44055:
                     d = np.pad(d, ((0,0),(0,44055-size),(0,0)), mode='constant', constant_values=0.)
@@ -679,10 +679,50 @@ class TransferLearning(BaselineCorrection):
                 if size != 44055:
                     self.sp_pred = self.sp_pred[:size]
                 self.csh_pred = self.calc_csh()
-                self.sp_pred_bt = self.transfer_scaler(mode='backtransform', inv_data=self.sp_pred)
-                log_las.append_curve('SP_PRED', self.sp_pred_bt)
-                log_las.append_curve('CSH_PRED', self.csh_pred)
-                log_las.write('{}/{}'.format(self.out_folder, file))
+                print('SP_pred:', self.sp_pred.shape) if self.verbose else None
+                self.transfer_inverse_scaler()
+                print('SP_pred_bt: {} | Csh_pred: {}'.format(self.log_.shape, self.csh_pred.shape)) if self.verbose else None
+                log_las.append_curve('SP_PRED', self.log_, unit='mV', descr='Predicted SP from baseline correction')
+                log_las.append_curve('CSH_PRED', self.csh_pred, unit='%', descr='Estimated Csh from predicted SP')
+                log_las.write('{}/{}'.format(self.out_folder, file), version=2.0)
+        return None
+    
+    def plot_transfer_results(self, filenum:int=100, figsize=(10,8), showfig:bool=True):
+        f = os.listdir(self.out_folder)[filenum]
+        d = lasio.read('{}/{}'.format(self.out_folder,f)).df()
+        fig, axs = plt.subplots(1, 3, figsize=figsize, sharey=True)
+        ax1, ax2, ax3 = axs
+        if 'GR' in d.columns:
+            mnem1 = 'GR'
+            lb, ub = 0, 200
+        elif 'RHOB' in d.columns:
+            mnem1 = 'RHOB'
+            lb, ub = 1.65, 2.65
+        elif 'RHOZ' in d.columns:
+            mnem1 = 'RHOZ'
+            lb, ub = 1.65, 2.65
+        else:
+            mnem1 = d.columns[2]
+            lb, ub = d[mnem1].min(), d[mnem1].max()
+        self.plot_curve(ax1, d, mnem1, lb, ub, 'g', units='')
+        ax21, ax22 = ax2.twiny(), ax2.twiny()
+        self.plot_curve(ax2, d, 'SP', -200, 50, 'magenta', units='mV')
+        self.plot_curve(ax21, d, 'SP_NORM', -200, 50, 'darkmagenta', units='mV', pad=1.08)
+        self.plot_curve(ax22, d, 'SP_PRED', -200, 50, 'k', units='mV', pad=1.16)
+        if 'VHS_GR' in d.columns:
+            ax31, ax32 = ax3.twiny(), ax3.twiny()
+            self.plot_curve(ax3, d, 'VSH_GR', 0, 1, 'lightgreen', units='/')
+            self.plot_curve(ax31, d, 'VSH_SP', 0, 1, 'purple', units='/', pad=1.08)
+            self.plot_curve(ax32, d, 'CSH_PRED', 0, 1, 'k', ls='--', units='/', pad=1.16)
+        else:
+            ax31 = ax3.twiny()
+            self.plot_curve(ax3, d, 'VSH_SP', 0, 1, 'purple', units='/')
+            self.plot_curve(ax31, d, 'CSH_PRED', 0, 1, 'k', ls='--', units='/', pad=1.08)
+        fig.suptitle('Estimation Results | {}'.format(f.split('.')[0]), weight='bold', fontsize=14)
+        ax1.set_ylabel('DEPTH [ft]', weight='bold')
+        plt.gca().invert_yaxis(); plt.tight_layout()
+        plt.savefig('figures/estimation_well_{}.png'.format(f.split('.')[0]), dpi=300) if self.save_fig else None
+        plt.show() if showfig else None
         return None
 
     '''
@@ -697,85 +737,115 @@ class TransferLearning(BaselineCorrection):
         csh_uncert = (z-z.min()) / (z.max()-z.min())
         return csh_uncert
     
-    def transfer_scaler(self, mode='transform', inv_data=None):
-        if mode=='transform':
-            sd, mu, minvalue, maxvalue = {}, {}, {}, {}
-            self.log_norm = np.zeros_like(self.log)
-            if self.scaler=='standard':
-                for k in range(self.log.shape[-1]):
-                    df = self.log[...,k]
-                    sd[k] = np.nanstd(df)
-                    mu[k] = np.nanmean(df)
-                    self.log_norm[...,k] = (df - mu[k]) / sd[k]
-            elif self.scaler=='minmax':
-                for k in range(self.log.shape[-1]):
-                    df = self.log[...,k]
-                    minvalue[k] = np.nanmin(df)
-                    maxvalue[k] = np.nanmax(df)
-                    self.log_norm[...,k] = (df - minvalue[k]) / (maxvalue[k] - minvalue[k])
-            elif self.scaler=='none':
-                self.log_norm = self.log
-            else:
-                raise ValueError('Invalid scaler. Choose a scaler from ("standard", "minmax" or "none")')
-            self.scaler_values = {'sd':sd, 'mu':mu, 'min':minvalue, 'max':maxvalue}
-            return self.log_norm if self.return_data else None
-        elif mode=='backtransform':
-            self.log_backtransform = np.zeros_like(self.log)
-            if self.scaler=='standard':
-                for k in range(self.log.shape[-1]):
-                    p = inv_data[...,k] * self.scaler_values['sd'][k]
-                    q = self.scaler_values['mu'][k]
-                    self.log_backtransform[...,k] = p + q 
-            elif self.scaler=='minmax':
-                for k in range(self.log.shape[-1]):
-                    p = inv_data[...,k] * (self.scaler_values['max'][k] - self.scaler_values['min'][k])
-                    q = self.scaler_values['min'][k]
-                    self.log_backtransform[...,k] = p + q
-            elif self.scaler=='none':
-                self.log_backtransform = inv_data
-            else:
-                raise ValueError('Invalid scaler. Choose a scaler from ("standard", "minmax" or "none")')
+    def transfer_scaler(self):
+        sd, mu, minvalue, maxvalue = {}, {}, {}, {}
+        self.log_norm = np.zeros_like(self.log)
+        if self.scaler=='standard':
+            for k in range(self.log.shape[-1]):
+                df = self.log[...,k]
+                sd[k] = np.nanstd(df)
+                mu[k] = np.nanmean(df)
+                self.log_norm[...,k] = (df - mu[k]) / sd[k]
+        elif self.scaler=='minmax':
+            for k in range(self.log.shape[-1]):
+                df = self.log[...,k]
+                minvalue[k] = np.nanmin(df)
+                maxvalue[k] = np.nanmax(df)
+                self.log_norm[...,k] = (df - minvalue[k]) / (maxvalue[k] - minvalue[k])
+        elif self.scaler=='none':
+            self.log_norm = self.log
         else:
-            raise ValueError('Invalid mode. Choose a mode from ("transform" or "backtransform")')
-
-    def calc_transfer_features(self):  
+            raise ValueError('Invalid scaler. Choose a scaler from ("standard", "minmax" or "none")')
+        self.scaler_values = {'sd':sd, 'mu':mu, 'min':minvalue, 'max':maxvalue}
+        return self.log_norm if self.return_data else None
+    
+    def transfer_inverse_scaler(self, inv_data=None):
+        if inv_data == None:
+            inv_data = self.sp_pred
+        sd, mu = self.scaler_values['sd'], self.scaler_values['mu']
+        minvalue, maxvalue = self.scaler_values['min'], self.scaler_values['max']
+        if self.scaler=='standard':
+            self.log_ = inv_data * sd[1] + mu[1]
+        elif self.scaler=='minmax':
+            self.log_ = inv_data * (maxvalue[1] - minvalue[1]) + minvalue[1]
+        elif self.scaler=='none':
+            self.log_ = inv_data
+        else:
+            raise ValueError('Invalid scaler. Choose a scaler from ("standard", "minmax" or "none")')
+        return self.log_backtransform if self.return_data else None
+    
+    def calc_transfer_features(self, verbose:bool=False):  
         d = self.log[:,1]              
         if self.dxdz:
             log_dxdz = np.gradient(d)
             self.log = np.concatenate([self.log, np.expand_dims(log_dxdz,-1)], axis=-1)
-            print('Log with Depth Derivative:', self.log.shape) if self.verbose else None
+            print('Log with Depth Derivative:', self.log.shape) if verbose else None
         if self.autocorr:
             log_ac   = signal.correlate(d, d, mode=self.autocorr_mode, method=self.autocorr_method)
             self.log = np.concatenate([self.log, np.expand_dims(log_ac,-1)], axis=-1)
-            print('Log with Autocorrelation:', self.log.shape) if self.verbose else None
+            print('Log with Autocorrelation:', self.log.shape) if verbose else None
         if self.detrend:
             log_detrend = signal.detrend(d)
             self.log = np.concatenate([self.log, np.expand_dims(log_detrend,-1)], axis=-1)
-            print('Log with Detrend filter:', self.log.shape) if self.verbose else None
+            print('Log with Detrend filter:', self.log.shape) if verbose else None
         if self.fourier:
             log_fft  = signal.zoom_fft(d, self.fourier_window)/self.fourier_scale
             self.log = np.concatenate([self.log, np.expand_dims(log_fft,-1)], axis=-1)
-            print('Log with Fourier Transform:', self.log.shape) if self.verbose else None
+            print('Log with Fourier Transform:', self.log.shape) if verbose else None
         if self.hilbert:
             log_hilbert = np.abs(signal.hilbert(d))
             self.log = np.concatenate([self.log, np.expand_dims(log_hilbert,-1)], axis=-1)
-            print('Log with Hilbert Transform:', self.log.shape) if self.verbose else None
+            print('Log with Hilbert Transform:', self.log.shape) if verbose else None
         if self.symiir:
             log_symiir = signal.symiirorder1(d, self.symiir_c0, self.symiir_z1)
             self.log = np.concatenate([self.log, np.expand_dims(log_symiir,-1)], axis=-1)
-            print('Log with Symmetric IIR filter:', self.log.shape) if self.verbose else None
+            print('Log with Symmetric IIR filter:', self.log.shape) if verbose else None
         if self.savgol:
             log_savgol = signal.savgol_filter(d, self.savgol_window, self.savgol_order)
             self.log = np.concatenate([self.log, np.expand_dims(log_savgol,-1)], axis=-1)
-            print('Log with Savitzky-Golay filter:', self.log.shape) if self.verbose else None
+            print('Log with Savitzky-Golay filter:', self.log.shape) if verbose else None
         if self.cspline:
             log_cspline = signal.cspline1d(d, lamb=self.spline_lambda)
             self.log = np.concatenate([self.log, np.expand_dims(log_cspline,-1)], axis=-1)
-            print('Log with Cubic Spline:', self.log.shape) if self.verbose else None
+            print('Log with Cubic Spline:', self.log.shape) if verbose else None
         if self.decimate:
             self.log_decimate = signal.decimate(d, q=self.decimate_q, axis=1)
-            print('Well log Decimated {}x: {}'.format(self.decimate_q, self.log_decimate.shape)) if self.verbose else None
+            print('Well log Decimated {}x: {}'.format(self.decimate_q, self.log_decimate.shape)) if verbose else None
 
+
+    def plot_curve(self, ax, df, curve, lb, ub, color='k', size=2, pad=1, mult=1,
+                semilog=False, bar=False, units=None, alpha=None,
+                marker=None, linestyle=None, fill=None, rightfill=False, **kwargs):
+            '''
+            subroutine to plot a curve on a given axis
+            '''
+            x, y = mult*df[curve], df.index
+            if linestyle is None:
+                linestyle = kwargs.get('ls', None)
+            if semilog:
+                ax.semilogx(x, y, c=color, label=curve, alpha=alpha)
+            else:
+                if bar:
+                    ax.barh(y, x, color=color, label=curve, alpha=alpha)
+                else:
+                    ax.plot(x, y, c=color, label=curve, marker=marker, linestyle=linestyle, alpha=alpha)
+            if fill:
+                if rightfill:
+                    ax.fill_betweenx(y, x, ub, alpha=alpha, color=color)
+                else:
+                    ax.fill_betweenx(y, lb, x, alpha=alpha, color=color)
+            if units==None:
+                units = df.curvesdict[curve].unit
+            ax.set_xlim(lb, ub)
+            ax.grid(True, which='both')
+            ax.set_xlabel('{} [{}]'.format(curve, units), color=color, weight='bold') 
+            ax.xaxis.set_label_position('top'); ax.xaxis.set_ticks_position('top')
+            ax.xaxis.set_tick_params(color=color, width=size)
+            ax.spines['top'].set_position(('axes', pad))
+            ax.spines['top'].set_edgecolor(color); ax.spines['top'].set_linewidth(1.75)
+            if linestyle != None:
+                ax.spines['top'].set_linestyle(linestyle)
+            return None
 
 ###########################################################################
 ############################## MAIN ROUTINE ###############################
@@ -805,7 +875,7 @@ if __name__ == '__main__':
                                showfig   = True,
                                )
     
-    blc.make_model(pretrained   = None,
+    blc.make_model(pretrained   = 'baseline_correction_model.keras',
                    show_summary = True, 
                    kernel_size  = 15, 
                    dropout      = 0.2,
