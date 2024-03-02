@@ -23,6 +23,7 @@ import os, argparse, time
 import numpy as np
 import pandas as pd
 from datetime import datetime
+from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -86,22 +87,33 @@ class RockClassification:
 
     def run_dashboard(self):
         time0 = time.time()
-        self.load_data()
-        self.process_data()
-        self.check_nclass_cutoffs()
-        self.calc_values()
+        self.bigloader()
+        self.preprocessing()
         self.calculate_method_clf()
-        self.make_class_array()
-        self.make_header()
-        self.make_dashboard()
+        self.postprocessing()
         print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
-
-
+        return None
     
     '''
     Auxiliary functions
     '''
 
+    def bigloader(self):
+        self.load_data()
+        self.process_data()
+        return None
+
+    def preprocessing(self, header=True):
+        self.check_nclass_cutoffs()
+        self.calc_values()
+        self.make_header() if header else None
+        return None
+    
+    def postprocessing(self):
+        self.make_class_array()
+        self.make_dashboard()
+        return None
+    
     def load_data(self):
         self.all_data = pd.read_csv(os.path.join(self.folder, self.file), low_memory=False)
         self.all_data['PORO'] = self.all_data['POROSITY'].fillna(self.all_data['EFFECTIVE_POROSITY'])
@@ -151,8 +163,6 @@ class RockClassification:
                 self.cutoffs = np.linspace(0.01, 1, self.n_classes)
             else:
                 self.cutoffs = np.linspace(0.1, 1000, self.n_classes+1)
-        else:
-            raise ValueError('Either n_classes or cutoffs must be provided, not both')
 
         if self.method not in ['kmeans', 'gmm', 'leverett', 'winland', 'lorenz']:
             raise ValueError('Invalid method. Choose between ("kmeans", "gmm", "leverett", "winland", "lorenz")')
