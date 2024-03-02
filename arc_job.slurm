@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -J AutoBase      # Job name
+#SBATCH -J AutoClass     # Job name
 #SBATCH -o out.%j        # Name of stdout output file
 #SBATCH -e err.%j        # Name of stderr error file
 #SBATCH -p gpu-a100      # Queue (partition) name
@@ -16,4 +16,4 @@ pwd
 date
 
 # Run the program
-python3 auto_baseline_correction.py 2>&1 | tee abc.out
+python3 auto_rock_classification.py --well_number 411 --n_classes 3 --method 'gmm' 2>&1 | tee arc.out
