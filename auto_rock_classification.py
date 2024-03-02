@@ -29,20 +29,24 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib.colors import ListedColormap
 
+from cartopy import crs
+from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.mixture import GaussianMixture
 from sklearn.cluster import KMeans
 
-from cartopy import crs
-from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
-
+###########################################################################
+################# AUTOMATIC CORE2LOG ROCK CLASSIFICATION ##################
+###########################################################################
 class RockClassification:
     def __init__(self, well_number:int=0, method:str='leverett', n_classes:int=None, cutoffs=None, minpts:int=30,
                        random_state:int=2024, prop:str='PORO',
                        kexp=0.588, texp=0.732, pexp=0.864,
                        phimin=None, phimax=None, kmin=None, kmax=None,
-                       folder:str='Data', file:str='GULFCOAST & TX CORE.csv', 
+                       folder:str='Data', subfolder:str='UT Export core classification', 
+                       file:str='GULFCOAST & TX CORE.csv', outfile:str='GULFCOAST & TX CORE postprocess.csv',
                        columns:list=['PORO', 'PERM', 'INTERVAL_DEPTH','SURFACE_LATITUDE','SURFACE_LONGITUDE'],
                        colors:list=['firebrick', 'dodgerblue', 'seagreen', 'gold', 'black'],
                        markers:list=['o', 's', 'D', '^', 'v'],
@@ -53,7 +57,9 @@ class RockClassification:
                        ):
         
         self.folder       = folder
+        self.subfolder    = subfolder
         self.file         = file
+        self.outfile      = outfile
         self.mycols       = columns
         self.minpts       = minpts
         self.random_state = random_state
@@ -94,10 +100,32 @@ class RockClassification:
         print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
         return None
     
+    def run_processing(self, method:str='gmm', n_classes:int=3):
+        postprocess_dfs = []
+        self.bigloader()
+        n_wells = len(self.well_core)
+        self.n_classes = n_classes
+        self.method    = method
+        for i in tqdm(range(n_wells), desc='Processing core2log Rock Classification', unit=' Well(s)'):
+            self.well_number = i
+            self.preprocessing(header=False)
+            self.calculate_method_clf()
+            df = self.d.copy()
+            df['UWI'] = self.uwi_clean[i]
+            df['INTERVAL_DEPTH'] = self.d.index
+            df.to_csv(os.path.join(self.folder, self.subfolder, '{}.csv'.format(self.uwi_clean[i])), index=False)
+            postprocess_dfs.append(df)
+        outname = os.path.join(self.folder, self.outfile)
+        print('-'*80+'\n'+'Processing Done!'+'\n'+'Saving ({}) ...'.format(outname))
+        postprocess_df = pd.concat(postprocess_dfs, ignore_index=True)
+        postprocess_df = postprocess_df[['UWI', 'INTERVAL_DEPTH', 'SURFACE_LATITUDE', 'SURFACE_LONGITUDE', 'PORO', 'PERM', 'CLASS']]
+        postprocess_df.to_csv(outname, index=False)
+        print('Done!'+'\n'+'-'*80)
+        return None
+    
     '''
-    Auxiliary functions
+    Running commands
     '''
-
     def bigloader(self):
         self.load_data()
         self.process_data()
@@ -113,6 +141,20 @@ class RockClassification:
         self.make_class_array()
         self.make_dashboard()
         return None
+    
+    '''
+    Auxiliary functions
+    '''
+    def make_header(self):
+        print('-'*80+'\n'+' '*16+'Automatic Core2Log Rock Classification Dashboard'+'\n'+'-'*80)
+        print('Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, self.wid, self.lati[self.well_number], self.longi[self.well_number]))
+        if self.method=='kmeans' or self.method=='gmm':
+            print('Method: {} | Number of Classes: {} | Cutoffs: N/A'.format(self.mthd, self.n_classes))
+        else:
+            print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(self.mthd, self.n_classes, self.cutoffs))
+        print('Well shape: {}'.format(self.d.shape))
+        print('-'*80)
+        return None  
     
     def load_data(self):
         self.all_data = pd.read_csv(os.path.join(self.folder, self.file), low_memory=False)
@@ -292,15 +334,7 @@ class RockClassification:
         for i in range(len(self.t)):
             self.t[i] = self.class_values[np.argmin(np.abs(self.d.index.values - self.z[i]))]
             self.t[i] = self.t[i-1] if self.t[i] == 0 else self.t[i]
-        return None
-
-    def make_header(self):
-        print('-'*80+'\n'+' '*16+'Automatic Core2Log Rock Classification Dashboard'+'\n'+'-'*80)
-        print('Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, self.wid, self.lati[self.well_number], self.longi[self.well_number]))
-        print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(self.mthd, self.n_classes, self.cutoffs))
-        print('Well shape: {}'.format(self.d.shape))
-        print('-'*80)
-        return None        
+        return None      
         
     def make_dashboard(self):
         fig   = plt.figure(figsize=self.figsize)
@@ -392,16 +426,19 @@ class RockClassification:
 ###########################################################################
 ############################## MAIN ROUTINE ###############################
 ###########################################################################
+    
 def main(args):
     print('-'*80+'\n'+'Date:', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     print("Current Working Directory:", os.getcwd())
-    arc = RockClassification(**vars(args))
-    arc.run_dashboard()
+    RockClassification(**vars(args)).run_dashboard()
+    RockClassification(**vars(args)).run_processing()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Automatic Rock Classification for Core2Log')
     parser.add_argument('--folder', type=str, default='Data', help='Folder with core data')
+    parser.add_argument('--subfolder', type=str, default='UT Export core classification', help='Subfolder with core data')
     parser.add_argument('--file', type=str, default='GULFCOAST & TX CORE.csv', help='Core data file')
+    parser.add_argument('--outfile', type=str, default='GULFCOAST & TX CORE postprocess.csv', help='Postprocessed core data file')
     parser.add_argument('--well_number', type=int, default=0, help='Well number to process')
     parser.add_argument('--method', type=str, default='leverett', help='Classification method')
     parser.add_argument('--n_classes', type=int, default=None, help='Number of classes')
@@ -431,6 +468,7 @@ if __name__ == '__main__':
     parser.add_argument('--verbose', type=bool, default=True, help='Verbose')
     args = parser.parse_args()
     main(args)
+
 ###########################################################################
 ################################## END ####################################
 ###########################################################################
