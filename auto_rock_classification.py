@@ -88,8 +88,19 @@ class RockClassification:
         time0 = time.time()
         self.load_data()
         self.process_data()
+        self.check_nclass_cutoffs()
+        self.calc_values()
+        self.calculate_method_clf()
+        self.make_class_array()
+        self.make_header()
         self.make_dashboard()
         print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
+
+
+    
+    '''
+    Auxiliary functions
+    '''
 
     def load_data(self):
         self.all_data = pd.read_csv(os.path.join(self.folder, self.file), low_memory=False)
@@ -145,118 +156,143 @@ class RockClassification:
 
         if self.method not in ['kmeans', 'gmm', 'leverett', 'winland', 'lorenz']:
             raise ValueError('Invalid method. Choose between ("kmeans", "gmm", "leverett", "winland", "lorenz")')
-        return None   
-        
-    def make_dashboard(self, **kwargs):
-        self.check_nclass_cutoffs()
-        
-        self.wid    = self.uwi_clean[self.well_number]
-        lati, longi = self.all_data['SURFACE_LATITUDE'], self.all_data['SURFACE_LONGITUDE']
-        ymin, ymax  = lati.min()-0.5,  lati.max()+0.5
-        xmin, xmax  = longi.min()-1.0, longi.max()+1.0
+        return None
+    
+    def calc_values(self):
+        self.wid = self.uwi_clean[self.well_number]
+        self.lati, self.longi = self.all_data['SURFACE_LATITUDE'], self.all_data['SURFACE_LONGITUDE']
+        self.ymin, self.ymax  = self.lati.min()-0.5,  self.lati.max()+0.5
+        self.xmin, self.xmax  = self.longi.min()-1.0, self.longi.max()+1.0
 
-        if self.prop == 'PORO':
-            q = self.all_data['PORO']/100
-        elif self.prop == 'PERM':
-            q = np.log10(self.all_data['PERM'])
-        else:
-            raise ValueError('Invalid property. Choose between ("PORO", "PERM")')
-
-        d = self.well_core[self.wid]
-        x, y = d['SURFACE_LONGITUDE'], d['SURFACE_LATITUDE']
-        p, k, logk = d['PORO']/100, d['PERM'], np.log10(d['PERM'])
-        X = pd.DataFrame({'PORO':p, 'PERM':logk})
-        d.loc[:,'CLASS'] = np.zeros_like(p, dtype=int)
-
-        if self.method == 'gmm' or self.method == 'kmeans':
-            mthd = self.method.upper()
-        else:
-            mthd = self.method.capitalize()
-
-        print('-'*80+'\n'+' '*16+'Automatic Core2Log Rock Classification Dashboard'+'\n'+'-'*80)
-        print('Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, self.wid, lati[self.well_number], longi[self.well_number]))
-        print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(mthd, self.n_classes, self.cutoffs))
-        print('Well shape: {}'.format(d.shape))
-        print('-'*80)
+        self.d = self.well_core[self.wid]
+        self.x, self.y = self.d['SURFACE_LONGITUDE'], self.d['SURFACE_LATITUDE']
+        self.p, self.k, self.logk = self.d['PORO']/100, self.d['PERM'], np.log10(self.d['PERM'])
+        self.X = pd.DataFrame({'PORO':self.p, 'PERM':self.logk})
+        self.d.loc[:,'CLASS'] = np.zeros_like(self.p, dtype=int)
 
         if self.phimin is None:
-            self.phimin = p.min()
+            self.phimin = self.p.min()
         if self.phimax is None:
-            self.phimax = p.max()
+            self.phimax = self.p.max()
         if self.kmin is None:
-            self.kmin = k.min()
+            self.kmin = self.k.min()
         if self.kmax is None:
-            self.kmax = k.max()
+            self.kmax = self.k.max()
 
-        lin_poro = np.linspace(0, self.phimax, 50)
-        lin_perm_low, lin_perm_med, lin_perm_high = [], [], []
-        lin_X = pd.DataFrame({'PORO':np.linspace(0, self.phimax, len(d)), 'PERM':np.linspace(self.kmin, self.kmax, len(d))})
+        self.lin_poro = np.linspace(0, self.phimax, 50)
+        self.lin_perm_low, self.lin_perm_med, self.lin_perm_high = [], [], []
+        self.lin_X = pd.DataFrame({'PORO':np.linspace(0, self.phimax, len(self.d)), 'PERM':np.linspace(self.kmin, self.kmax, len(self.d))})
 
+        if self.prop == 'PORO':
+            self.q = self.all_data['PORO']/100
+        elif self.prop == 'PERM':
+            self.q = np.log10(self.all_data['PERM'])
+        else:
+            raise ValueError('Invalid property to display. Choose between ("PORO", "PERM")')
+
+        if self.method == 'gmm' or self.method == 'kmeans':
+            self.mthd = self.method.upper()
+        else:
+            self.mthd = self.method.capitalize()
+
+        return None
+    
+    def calc_kmeans(self):
+        self.lab = 'K-Means Class'
+        clf = make_pipeline(MinMaxScaler(), KMeans(n_clusters=self.n_classes, random_state=self.random_state)).fit(self.X)
+        self.d['CLASS'] = clf.predict(self.X) + 1
+        self.v = clf.predict(self.lin_X) + 1
+        return None
+    
+    def calc_gmm(self):
+        self.lab = 'GMM Class'
+        clf = make_pipeline(MinMaxScaler(), GaussianMixture(n_components=self.n_classes, random_state=self.random_state)).fit(self.X)
+        self.d['CLASS'] = clf.predict(self.X) + 1
+        self.v = clf.predict(self.lin_X) + 1
+        return None
+    
+    def calc_leverett(self):
+        self.cutoffs       = [0] + self.cutoffs
+        self.lab           = 'Leverett $\sqrt{k/\phi}$'
+        self.mask          = []
+        self.color_centers = []
+        self.v             = np.sqrt(self.k/self.p)
+        def leverett_fun(w, l=self.lin_poro):
+            return (w**2 * l)
+        for i in range(len(self.cutoffs)-1):
+            self.mask.append(np.logical_and(self.v>=self.cutoffs[i], self.v<=self.cutoffs[i+1]))
+            self.color_centers.append(np.mean([self.cutoffs[i], self.cutoffs[i+1]]))
+        for i in range(len(self.color_centers)):
+            self.lin_perm_low.append(leverett_fun(self.cutoffs[i]))
+            self.lin_perm_med.append(leverett_fun(self.color_centers[i]))
+            self.lin_perm_high.append(leverett_fun(self.cutoffs[i+1]))
+        for i, m in enumerate(self.mask):
+            self.d.loc[m,'CLASS'] = int(i+1)
+        return None
+    
+    def calc_winland(self):
+        self.cutoffs       = [0] + self.cutoffs
+        self.lab           = 'Winland $R_{35}$'
+        self.mask          = []
+        self.color_centers = []
+        self.v = self.k**self.kexp * 10**self.texp / self.p**self.pexp
+        def winland_fun(r35, l=self.lin_poro):
+            return ((r35 * l**self.pexp) / 10**self.texp)**(1/self.kexp)
+        for i in range(len(self.cutoffs)-1):
+            self.mask.append(np.logical_and(self.v>=self.cutoffs[i], self.v<=self.cutoffs[i+1]))
+            self.color_centers.append(np.mean([self.cutoffs[i], self.cutoffs[i+1]]))
+        for i in range(len(self.color_centers)):
+            self.lin_perm_low.append(winland_fun(self.cutoffs[i]))
+            self.lin_perm_med.append(winland_fun(self.color_centers[i]))
+            self.lin_perm_high.append(winland_fun(self.cutoffs[i+1]))
+        for i, m in enumerate(self.mask):
+            self.d.loc[m,'CLASS'] = int(i+1)
+        return None
+    
+    def calc_lorenz(self):
+        self.lab = 'Lorenz Class'
+        self.cp  = np.cumsum(self.p)/self.p.sum()
+        self.ck  = np.cumsum(self.k)/self.k.sum()
+        self.cv  = np.cumsum(np.sort(self.ck)) / np.cumsum(np.sort(self.cp)).max()
+        self.v   = np.concatenate([[0], np.diff(self.ck)/np.diff(self.cp)])
+        self.mask = []
+        for i in range(len(self.cutoffs)-1):
+            self.mask.append((self.v>=self.cutoffs[i]) & (self.v<=self.cutoffs[i+1]))
+        for i, m in enumerate(self.mask):
+            self.d.loc[m,'CLASS'] = int(i+1)
+        return None
+    
+    def calculate_method_clf(self):
         if self.method == 'kmeans':
-            lab = 'K-Means Class'
-            clf = make_pipeline(MinMaxScaler(), KMeans(n_clusters=self.n_classes, random_state=self.random_state)).fit(X)
-            d['CLASS'] = clf.predict(X) + 1
-            v = clf.predict(lin_X) + 1
-        
+            self.calc_kmeans()
         elif self.method == 'gmm':
-            lab = 'GMM Class'
-            clf = make_pipeline(MinMaxScaler(), GaussianMixture(n_components=self.n_classes, random_state=self.random_state)).fit(X)
-            d['CLASS'] = clf.predict(X) + 1
-            v = clf.predict(lin_X) + 1
-
+            self.calc_gmm()
         elif self.method == 'leverett':
-            self.cutoffs = [0] + self.cutoffs
-            lab     = 'Leverett $\sqrt{k/\phi}$'
-            mask, color_centers = [], []
-            v = np.sqrt(k/p)
-            def leverett_fun(w, l=lin_poro):
-                return (w**2 * l)
-            for i in range(len(self.cutoffs)-1):
-                mask.append(np.logical_and(v>=self.cutoffs[i], v<=self.cutoffs[i+1]))
-                color_centers.append(np.mean([self.cutoffs[i], self.cutoffs[i+1]]))
-            for i in range(len(color_centers)):
-                lin_perm_low.append(leverett_fun(self.cutoffs[i]))
-                lin_perm_med.append(leverett_fun(color_centers[i]))
-                lin_perm_high.append(leverett_fun(self.cutoffs[i+1]))
-            for i, m in enumerate(mask):
-                d.loc[m,'CLASS'] = int(i+1)
-            
+            self.calc_leverett()
         elif self.method == 'winland':
-            self.cutoffs = [0] + self.cutoffs
-            lab     = 'Winland $R_{35}$'
-            mask, color_centers = [], []
-            v = k**self.kexp * 10**self.texp / p**self.pexp
-            def winland_fun(r35, l=lin_poro):
-                return ((r35 * l**self.pexp) / 10**self.texp)**(1/self.kexp)
-            for i in range(len(self.cutoffs)-1):
-                mask.append(np.logical_and(v>=self.cutoffs[i], v<=self.cutoffs[i+1]))
-                color_centers.append(np.mean([self.cutoffs[i], self.cutoffs[i+1]]))
-            for i in range(len(color_centers)):
-                lin_perm_low.append(winland_fun(self.cutoffs[i]))
-                lin_perm_med.append(winland_fun(color_centers[i]))
-                lin_perm_high.append(winland_fun(self.cutoffs[i+1]))
-            for i, m in enumerate(mask):
-                d.loc[m,'CLASS'] = int(i+1)
-
+            self.calc_winland()
         elif self.method == 'lorenz':
-            lab = 'Lorenz Class'
-            cp = np.cumsum(p)/p.sum()
-            ck = np.cumsum(k)/k.sum()
-            cv = np.cumsum(np.sort(ck)) / np.cumsum(np.sort(cp)).max()
-            v  = np.concatenate([[0], np.diff(ck)/np.diff(cp)])
-            mask = []
-            for i in range(len(self.cutoffs)-1):
-                mask.append((v>=self.cutoffs[i]) & (v<=self.cutoffs[i+1]))
-            for i, m in enumerate(mask):
-                d.loc[m,'CLASS'] = int(i+1)
-        
-        z = np.linspace(d.index.min(), d.index.max()+15, 100)
-        t = np.zeros_like(z)
-        class_values = d['CLASS'].values
-        for i in range(len(t)):
-            t[i] = class_values[np.argmin(np.abs(d.index.values - z[i]))]
-            t[i] = t[i-1] if t[i] == 0 else t[i]
+            self.calc_lorenz()
+        return None
+    
+    def make_class_array(self):
+        self.z = np.linspace(self.d.index.min(), self.d.index.max()+15, 100)
+        self.t = np.zeros_like(self.z)
+        self.class_values = self.d['CLASS'].values
+        for i in range(len(self.t)):
+            self.t[i] = self.class_values[np.argmin(np.abs(self.d.index.values - self.z[i]))]
+            self.t[i] = self.t[i-1] if self.t[i] == 0 else self.t[i]
+        return None
 
+    def make_header(self):
+        print('-'*80+'\n'+' '*16+'Automatic Core2Log Rock Classification Dashboard'+'\n'+'-'*80)
+        print('Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, self.wid, self.lati[self.well_number], self.longi[self.well_number]))
+        print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(self.mthd, self.n_classes, self.cutoffs))
+        print('Well shape: {}'.format(self.d.shape))
+        print('-'*80)
+        return None        
+        
+    def make_dashboard(self):
         fig   = plt.figure(figsize=self.figsize)
         gs    = GridSpec(6, 6, figure=fig)
         plate = crs.PlateCarree()
@@ -270,79 +306,78 @@ class RockClassification:
         axs = [ax1, ax2, ax3, ax4, ax5]
 
         # Spatial plot of core data
-        ax1.scatter(x, y, marker='*', c='k', s=self.sw)
-        im1 = ax1.scatter(longi, lati, c=q, cmap=self.cmap0, s=self.s1, vmax=0.35, transform=plate, zorder=2)
+        ax1.scatter(self.x, self.y, marker='*', c='k', s=self.sw)
+        im1 = ax1.scatter(self.longi, self.lati, c=self.q, cmap=self.cmap0, s=self.s1, vmax=0.35, transform=plate, zorder=2)
         ax1.coastlines(resolution='50m', color='black', linewidth=2, zorder=1)
         gl = ax1.gridlines(draw_labels=True)
         gl.top_labels = gl.right_labels = False
         gl.xformatter, gl.yformatter = LONGITUDE_FORMATTER, LATITUDE_FORMATTER
         cb1 = plt.colorbar(im1, pad=0.04, fraction=0.046); cb1.set_label('Porosity [v/v]', rotation=270, labelpad=15)
-        ax1.vlines(x, ymin, y, color='k', ls='--', alpha=self.alpha)
-        ax1.hlines(y, xmin, x, color='k', ls='--', alpha=self.alpha)
-        ax1.set(xlim=(xmin, xmax), ylim=(ymin, ymax), xlabel='Surface Longitude', ylabel='Surface Latitude')
+        ax1.vlines(self.x, self.ymin, self.y, color='k', ls='--', alpha=self.alpha)
+        ax1.hlines(self.y, self.xmin, self.x, color='k', ls='--', alpha=self.alpha)
+        ax1.set(xlim=(self.xmin, self.xmax), ylim=(self.ymin, self.ymax), xlabel='Surface Longitude', ylabel='Surface Latitude')
         ax1.patch.set_facecolor('lightgrey')
 
         # Poro-vs-Perm with Classification Values
         if self.method=='leverett' or self.method=='winland':
-            im2 = ax2.scatter(p, k, c=v, cmap=self.cmap, s=self.s2, edgecolor='k', linewidth=0.5)
-            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(lab, rotation=270, labelpad=15)
+            im2 = ax2.scatter(self.p, self.k, c=self.v, cmap=self.cmap, s=self.s2, edgecolor='k', linewidth=0.5)
+            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
             ax2.set(xlim=(0,self.phimax))
-            for i, m in enumerate(mask):
-                ax2.plot(lin_poro, lin_perm_med[i], c=self.colors[i])
-                ax2.fill_between(lin_poro, lin_perm_low[i], lin_perm_high[i], color=self.colors[i], alpha=self.alphag)
+            for i, m in enumerate(self.mask):
+                ax2.plot(self.lin_poro, self.lin_perm_med[i], c=self.colors[i])
+                ax2.fill_between(self.lin_poro, self.lin_perm_low[i], self.lin_perm_high[i], color=self.colors[i], alpha=self.alphag)
         elif self.method=='lorenz':
             cmap2  = ListedColormap(self.colors[:len(self.cutoffs)])
-            im2 = ax2.scatter(p, k, c=v, cmap=self.cmap, s=self.s2, edgecolor='k', linewidth=0.5)
-            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(lab, rotation=270, labelpad=15)
+            im2 = ax2.scatter(self.p, self.k, c=self.v, cmap=self.cmap, s=self.s2, edgecolor='k', linewidth=0.5)
+            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
             ax21 = ax2.twinx().twiny()
-            ax21.scatter(np.sort(cp), np.sort(ck), c=v, cmap=cmap2)
+            ax21.scatter(np.sort(self.cp), np.sort(self.ck), c=self.v, cmap=cmap2)
             ax21.axline([0,0],[1,1], c='k', ls='--')
             ax21.set(xlim=(-0.01,1.025), ylim=(-0.025,1.025))
         else:
             cmap2  = ListedColormap(self.colors[:len(self.cutoffs)-1])
-            im2 = ax2.scatter(p, k, c=d['CLASS'], cmap=cmap2, s=self.s2, edgecolor='k', linewidth=0.5)
-            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(lab, rotation=270, labelpad=15)
+            im2 = ax2.scatter(self.p, self.k, c=self.d['CLASS'], cmap=cmap2, s=self.s2, edgecolor='k', linewidth=0.5)
+            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
             cb.set_ticks(np.arange(1,self.n_classes+1)); cb.set_ticklabels(np.arange(1,self.n_classes+1))
         ax2.set_yscale('log')
         ax2.set(xlabel='Porosity [v/v]', ylabel='Permeability [mD]')
 
         # Core porosity vs depth
         for i in range(self.n_classes):
-            c = d['CLASS']
+            c = self.d['CLASS']
             if self.method != 'lorenz':
-                ax3.scatter(p[c==i+1], d.index[c==i+1], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
+                ax3.scatter(self.p[c==i+1], self.d.index[c==i+1], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
             else:
-                ax3.scatter(p[c==i], d.index[c==i], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
+                ax3.scatter(self.p[c==i], self.d.index[c==i], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
         ax3.set(xlabel='Porosity [v/v]', ylabel='Depth [ft]')
         ax3.invert_yaxis()
 
         # Core permeability vs depth
         for i in range(self.n_classes):
-            c = d['CLASS']
+            c = self.d['CLASS']
             if self.method != 'lorenz':
-                ax4.scatter(k[c==i+1], d.index[c==i+1], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
+                ax4.scatter(self.k[c==i+1], self.d.index[c==i+1], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
             else:
-                ax4.scatter(k[c==i], d.index[c==i], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
+                ax4.scatter(self.k[c==i], self.d.index[c==i], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
         ax4.set(xlabel='Permeability [mD]', xscale='log')
 
         # Rock Class vs depth
         for i in range(self.n_classes):
             if self.method != 'lorenz':
-                ax5.fill_betweenx(z, 0, t, where=(t==i+1), color=self.colors[i])
+                ax5.fill_betweenx(self.z, 0, self.t, where=(self.t==i+1), color=self.colors[i])
             else:
-                ax5.fill_betweenx(z, 0, t, where=(t==i), color=self.colors[i])
-        ax5.set(xlabel='{} Rock Class'.format(mthd), xlim=(0.25, self.n_classes+0.25))
+                ax5.fill_betweenx(self.z, 0, self.t, where=(self.t==i), color=self.colors[i])
+        ax5.set(xlabel='{} Rock Class'.format(self.mthd), xlim=(0.25, self.n_classes+0.25))
         ax5.set_xticks(np.arange(1,self.n_classes+1)); ax5.set_xticklabels(np.arange(1,self.n_classes+1))
 
         # plot settings
-        fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {} | {} method'.format(self.well_number, self.wid, mthd), weight='bold')
+        fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {} | {} method'.format(self.well_number, self.wid, self.mthd), weight='bold')
         for ax in axs:
             ax.grid(True, which='both', alpha=self.alphag)
         plt.tight_layout()
         plt.savefig('figures/ARC_dashboard_{}.png'.format(self.wid), dpi=300) if self.savefig else None
         plt.show() if self.showfig else None
-        self.d = d
-        return self.d if self.return_data else None
+        return None
 
 ###########################################################################
 ############################## MAIN ROUTINE ###############################
@@ -351,7 +386,7 @@ def main(args):
     print('-'*80+'\n'+'Date:', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     print("Current Working Directory:", os.getcwd())
     arc = RockClassification(**vars(args))
-    arc.run_dashboard()   
+    arc.run_dashboard()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Automatic Rock Classification for Core2Log')
