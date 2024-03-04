@@ -22,8 +22,8 @@
 import os, argparse, time
 import numpy as np
 import pandas as pd
-from datetime import datetime
 from tqdm import tqdm
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -35,62 +35,78 @@ from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.mixture import GaussianMixture
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, BisectingKMeans, Birch
 
 ###########################################################################
 ################# AUTOMATIC CORE2LOG ROCK CLASSIFICATION ##################
 ###########################################################################
 class RockClassification:
-    def __init__(self, well_number:int=0, method:str='leverett', n_classes:int=None, cutoffs=None, minpts:int=30,
-                       random_state:int=2024, prop:str='PORO',
+    def __init__(self, well_number:int=0, 
+                       method=None,
+                       n_classes:int=None,
+                       cutoffs=None,
+                       minpts:int=30,
+                       birch_threshold=0.1,
+                       random_state:int=2024, 
+                       prop:str='PORO',
                        kexp=0.588, texp=0.732, pexp=0.864,
                        phimin=None, phimax=None, kmin=None, kmax=None,
-                       folder:str='Data', subfolder:str='UT Export core classification', 
-                       file:str='GULFCOAST & TX CORE.csv', outfile:str='GULFCOAST & TX CORE postprocess.csv',
-                       columns:list=['PORO', 'PERM', 'INTERVAL_DEPTH','SURFACE_LATITUDE','SURFACE_LONGITUDE'],
-                       colors:list=['firebrick', 'dodgerblue', 'seagreen', 'gold', 'black'],
-                       markers:list=['o', 's', 'D', '^', 'v'],
+                       folder:str='Data', 
+                       subfolder:str='UT Export core classification', 
+                       file:str='GULFCOAST & TX CORE.csv', 
+                       outfile:str='GULFCOAST & TX CORE postprocess.csv',
                        s1=10, sw=80, s2=50, ms=30, alpha=0.25, alphag=0.33,
-                       cmap0:str='plasma', cmap:str='jet', figsize=(15,9), 
-                       showfig:bool=True, savefig:bool=True, return_data:bool=False, verbose:bool=True,
+                       cmap0:str='plasma', cmap:str='jet', 
+                       showfig:bool=True, figsize=(15,9), savefig:bool=True,
+                       return_data:bool=False, verbose:bool=True,
                        **kwargs
                        ):
         
-        self.folder       = folder
-        self.subfolder    = subfolder
-        self.file         = file
-        self.outfile      = outfile
-        self.mycols       = columns
-        self.minpts       = minpts
-        self.random_state = random_state
-        self.colors       = colors
-        self.markers      = markers
-        self.well_number  = well_number
-        self.prop         = prop
-        self.method       = method
-        self.n_classes    = n_classes
-        self.cutoffs      = cutoffs
-        self.kexp         = kexp
-        self.texp         = texp
-        self.pexp         = pexp
-        self.phimin       = phimin
-        self.phimax       = phimax
-        self.kmin         = kmin
-        self.kmax         = kmax
-        self.s1           = s1
-        self.sw           = sw
-        self.s2           = s2
-        self.ms           = ms
-        self.alpha        = alpha
-        self.alphag       = alphag
-        self.cmap0        = cmap0
-        self.cmap         = cmap
-        self.figsize      = figsize
-        self.showfig      = showfig
-        self.savefig      = savefig
-        self.return_data  = return_data
-        self.verbose      = verbose
+        self.folder          = folder
+        self.subfolder       = subfolder
+        self.file            = file
+        self.outfile         = outfile
+        self.minpts          = minpts
+        self.random_state    = random_state
+        self.well_number     = well_number
+        self.prop            = prop
+        self.n_classes       = n_classes
+        self.method          = method
+        self.birch_threshold = birch_threshold
+        self.cutoffs         = cutoffs
+        self.kexp            = kexp
+        self.texp            = texp
+        self.pexp            = pexp
+        self.phimin          = phimin
+        self.phimax          = phimax
+        self.kmin            = kmin
+        self.kmax            = kmax
+        self.s1              = s1
+        self.sw              = sw
+        self.s2              = s2
+        self.ms              = ms
+        self.alpha           = alpha
+        self.alphag          = alphag
+        self.cmap0           = cmap0
+        self.cmap            = cmap
+        self.figsize         = figsize
+        self.showfig         = showfig
+        self.savefig         = savefig
+        self.return_data     = return_data
+        self.verbose         = verbose
+        self.incols          = ['PORO', 'PERM', 'INTERVAL_DEPTH','SURFACE_LATITUDE','SURFACE_LONGITUDE']
+        self.outcols         = ['UWI', 'INTERVAL_DEPTH', 'SURFACE_LATITUDE', 'SURFACE_LONGITUDE', 'PORO', 'PERM', 'CLASS']
+        self.colors          = ['firebrick', 'dodgerblue', 'seagreen', 'gold', 'black']
+        self.markers         = ['o', 's', 'D', '^', 'v']
+        self.method_err_msg  = 'Invalid method. Choose between ("kmeans", "bisectkmeans", "gmm", "birch", "leverett", "winland", "lorenz")'
+        self.ml_methods      = ['kmeans', 'gmm', 'birch', 'bisectkmeans']
+        self.ph_methods      = ['leverett', 'winland', 'lorenz']
+        self.all_methods     = self.ml_methods + self.ph_methods
+        self.mthd = self.method.upper() if self.method in self.ml_methods else self.method.capitalize()
 
+    '''
+    Main routines
+    '''
     def run_dashboard(self):
         time0 = time.time()
         self.bigloader()
@@ -100,13 +116,12 @@ class RockClassification:
         print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
         return None
     
-    def run_processing(self, method:str='gmm', n_classes:int=3):
+    def run_processing(self):
         postprocess_dfs = []
         self.bigloader()
-        n_wells = len(self.well_core)
-        self.n_classes = n_classes
-        self.method    = method
-        for i in tqdm(range(n_wells), desc='Processing core2log Rock Classification', unit=' Well(s)'):
+        print('-'*80+'\n'+' '*20+'Processing Core2Log Rock Classification')
+        print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(self.mthd, self.n_classes, self.cutoffs)+'\n'+'-'*80)
+        for i in tqdm(range(len(self.well_core)), desc='Processing well(s)', unit=' well'):
             self.well_number = i
             self.preprocessing(header=False)
             self.calculate_method_clf()
@@ -118,7 +133,7 @@ class RockClassification:
         outname = os.path.join(self.folder, self.outfile)
         print('-'*80+'\n'+'Processing Done!'+'\n'+'Saving ({}) ...'.format(outname))
         postprocess_df = pd.concat(postprocess_dfs, ignore_index=True)
-        postprocess_df = postprocess_df[['UWI', 'INTERVAL_DEPTH', 'SURFACE_LATITUDE', 'SURFACE_LONGITUDE', 'PORO', 'PERM', 'CLASS']]
+        postprocess_df = postprocess_df[self.outcols]
         postprocess_df.to_csv(outname, index=False)
         print('Done!'+'\n'+'-'*80)
         return None
@@ -131,7 +146,7 @@ class RockClassification:
         self.process_data()
         return None
 
-    def preprocessing(self, header=True):
+    def preprocessing(self, header:bool=True):
         self.check_nclass_cutoffs()
         self.calc_values()
         self.make_header() if header else None
@@ -145,17 +160,6 @@ class RockClassification:
     '''
     Auxiliary functions
     '''
-    def make_header(self):
-        print('-'*80+'\n'+' '*16+'Automatic Core2Log Rock Classification Dashboard'+'\n'+'-'*80)
-        print('Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, self.wid, self.lati[self.well_number], self.longi[self.well_number]))
-        if self.method=='kmeans' or self.method=='gmm':
-            print('Method: {} | Number of Classes: {} | Cutoffs: N/A'.format(self.mthd, self.n_classes))
-        else:
-            print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(self.mthd, self.n_classes, self.cutoffs))
-        print('Well shape: {}'.format(self.d.shape))
-        print('-'*80)
-        return None  
-    
     def load_data(self):
         self.all_data = pd.read_csv(os.path.join(self.folder, self.file), low_memory=False)
         self.all_data['PORO'] = self.all_data['POROSITY'].fillna(self.all_data['EFFECTIVE_POROSITY'])
@@ -172,42 +176,27 @@ class RockClassification:
         self.uwi_clean = []
         for u, data in self.all_data.groupby('UWI'):
             if data.shape[0] >= self.minpts:
-                self.well_core[str(u)] = data[self.mycols].set_index('INTERVAL_DEPTH').sort_index()
+                self.well_core[str(u)] = data[self.incols].set_index('INTERVAL_DEPTH').sort_index()
                 self.uwi_clean.append(str(u))
         print('Total number of wells:', len(self.well_core)) if self.verbose else None
         if self.return_data:
             return self.well_core, self.uwi_clean
         
     def check_nclass_cutoffs(self):
-        if self.n_classes is None and self.cutoffs is not None:
-            self.n_classes = len(self.cutoffs)
-            assert len(self.cutoffs) < 6, 'Maximum number of classes is 5'
-            if self.method=='kmeans' or self.method=='gmm':
-                print('Warning: "kmeans" and "gmm" methods do not require cutoffs!')
-                print('         Ignoring cutoffs. Calculating n_classes from cutoffs.')
-        elif self.n_classes is not None and self.cutoffs is None:
-            if self.method=='leverett':
-                self.cutoffs = np.linspace(1, 100, self.n_classes+1)
-            elif self.method=='winland':
-                self.cutoffs = np.linspace(10, 1000, self.n_classes+1)
-            elif self.method=='lorenz':
-                self.cutoffs = np.linspace(0.01, 1, self.n_classes)
-            else:
-                self.cutoffs = np.linspace(0.1, 1000, self.n_classes+1)
+        if self.method in self.ml_methods:
+            assert self.n_classes is not None, 'Number of classes is required for ML methods'
             assert self.n_classes < 6, 'Maximum number of classes is 5'
-        elif self.n_classes is None and self.cutoffs is None:
-            self.n_classes = 3
-            if self.method=='leverett':
-                self.cutoffs = np.linspace(1, 100, self.n_classes+1)
-            elif self.method=='winland':
-                self.cutoffs = np.linspace(10, 1000, self.n_classes+1)
-            elif self.method=='lorenz':
-                self.cutoffs = np.linspace(0.01, 1, self.n_classes)
-            else:
-                self.cutoffs = np.linspace(0.1, 1000, self.n_classes+1)
+            assert self.cutoffs is None, 'Cutoffs are not required for ML methods'
 
-        if self.method not in ['kmeans', 'gmm', 'leverett', 'winland', 'lorenz']:
-            raise ValueError('Invalid method. Choose between ("kmeans", "gmm", "leverett", "winland", "lorenz")')
+        elif self.method in self.ph_methods:
+            assert self.cutoffs is not None, 'Cutoffs are required for physics-based methods'
+            assert np.array_equal(self.cutoffs, np.sort(self.cutoffs)), 'Cutoffs must be in ascending order'
+            assert self.n_classes is None, 'Number of classes is not required for physics-based methods'
+            self.n_classes = len(self.cutoffs)
+        
+        else:
+            raise ValueError(self.method_err_msg)    
+        
         return None
     
     def calc_values(self):
@@ -233,7 +222,8 @@ class RockClassification:
 
         self.lin_poro = np.linspace(0, self.phimax, 50)
         self.lin_perm_low, self.lin_perm_med, self.lin_perm_high = [], [], []
-        self.lin_X = pd.DataFrame({'PORO':np.linspace(0, self.phimax, len(self.d)), 'PERM':np.linspace(self.kmin, self.kmax, len(self.d))})
+        self.lin_X = pd.DataFrame({'PORO':np.linspace(0, self.phimax, len(self.d)), 
+                                   'PERM':np.linspace(self.kmin, self.kmax, len(self.d))})
 
         if self.prop == 'PORO':
             self.q = self.all_data['PORO']/100
@@ -241,26 +231,39 @@ class RockClassification:
             self.q = np.log10(self.all_data['PERM'])
         else:
             raise ValueError('Invalid property to display. Choose between ("PORO", "PERM")')
-
-        if self.method == 'gmm' or self.method == 'kmeans':
-            self.mthd = self.method.upper()
-        else:
-            self.mthd = self.method.capitalize()
-
+                
         return None
     
     def calc_kmeans(self):
         self.lab = 'K-Means Class'
-        clf = make_pipeline(MinMaxScaler(), KMeans(n_clusters=self.n_classes, random_state=self.random_state)).fit(self.X)
-        self.d['CLASS'] = clf.predict(self.X) + 1
-        self.v = clf.predict(self.lin_X) + 1
+        self.clf = make_pipeline(MinMaxScaler(), KMeans(n_clusters=self.n_classes, random_state=self.random_state))
+        self.clf.fit(self.X)
+        self.d['CLASS'] = self.clf.predict(self.X) + 1
+        self.v = self.clf.predict(self.lin_X) + 1
+        return None
+
+    def calc_bisectkmeans(self):
+        self.lab = 'Bisecting-K-Means Class'
+        self.clf = make_pipeline(MinMaxScaler(), BisectingKMeans(n_clusters=self.n_classes, random_state=self.random_state))
+        self.clf.fit(self.X)
+        self.d['CLASS'] = self.clf.predict(self.X) + 1
+        self.v = self.clf.predict(self.lin_X) + 1
         return None
     
     def calc_gmm(self):
         self.lab = 'GMM Class'
-        clf = make_pipeline(MinMaxScaler(), GaussianMixture(n_components=self.n_classes, random_state=self.random_state)).fit(self.X)
-        self.d['CLASS'] = clf.predict(self.X) + 1
-        self.v = clf.predict(self.lin_X) + 1
+        self.clf = make_pipeline(MinMaxScaler(), GaussianMixture(n_components=self.n_classes, random_state=self.random_state))
+        self.clf.fit(self.X)
+        self.d['CLASS'] = self.clf.predict(self.X) + 1
+        self.v = self.clf.predict(self.lin_X) + 1
+        return None
+    
+    def calc_birch(self):
+        self.lab = 'Birch Class'
+        self.clf = make_pipeline(MinMaxScaler(), Birch(n_clusters=self.n_classes, threshold=self.birch_threshold))
+        self.clf.fit(self.X)
+        self.d['CLASS'] = self.clf.predict(self.X) + 1
+        self.v = self.clf.predict(self.lin_X) + 1
         return None
     
     def calc_leverett(self):
@@ -302,14 +305,15 @@ class RockClassification:
         return None
     
     def calc_lorenz(self):
-        self.lab = 'Lorenz Class'
+        self.lab = 'Lorenz Slope'
         self.cp  = np.cumsum(self.p)/self.p.sum()
         self.ck  = np.cumsum(self.k)/self.k.sum()
         self.cv  = np.cumsum(np.sort(self.ck)) / np.cumsum(np.sort(self.cp)).max()
         self.v   = np.concatenate([[0], np.diff(self.ck)/np.diff(self.cp)])
         self.mask = []
-        for i in range(len(self.cutoffs)-1):
-            self.mask.append((self.v>=self.cutoffs[i]) & (self.v<=self.cutoffs[i+1]))
+        ct = [0] + self.cutoffs
+        for i in range(len(ct)-1):
+            self.mask.append(np.logical_and(self.v>=ct[i], self.v<=ct[i+1]))
         for i, m in enumerate(self.mask):
             self.d.loc[m,'CLASS'] = int(i+1)
         return None
@@ -317,24 +321,38 @@ class RockClassification:
     def calculate_method_clf(self):
         if self.method == 'kmeans':
             self.calc_kmeans()
+        elif self.method == 'bisectkmeans':
+            self.calc_bisectkmeans()
         elif self.method == 'gmm':
             self.calc_gmm()
+        elif self.method == 'birch':
+            self.calc_birch()
         elif self.method == 'leverett':
             self.calc_leverett()
         elif self.method == 'winland':
             self.calc_winland()
         elif self.method == 'lorenz':
             self.calc_lorenz()
+        else:
+            raise ValueError(self.method_err_msg)
         return None
     
     def make_class_array(self):
-        self.z = np.linspace(self.d.index.min(), self.d.index.max()+15, 100)
+        self.z = np.linspace(self.d.index.min(), self.d.index.max(), len(self.d))
         self.t = np.zeros_like(self.z)
         self.class_values = self.d['CLASS'].values
         for i in range(len(self.t)):
             self.t[i] = self.class_values[np.argmin(np.abs(self.d.index.values - self.z[i]))]
-            self.t[i] = self.t[i-1] if self.t[i] == 0 else self.t[i]
-        return None      
+            self.t[i] = self.t[i-1] if self.t[i]==0 else self.t[i]
+        return None
+    
+    def make_header(self):
+        print('-'*80+'\n'+' '*16+'Automatic Core2Log Rock Classification Dashboard'+'\n'+'-'*80)
+        print('Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, self.wid, self.lati[self.well_number], self.longi[self.well_number]))
+        print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(self.mthd, self.n_classes, self.cutoffs))
+        print('Well shape: {}'.format(self.d.shape))
+        print('-'*80)
+        return None  
         
     def make_dashboard(self):
         fig   = plt.figure(figsize=self.figsize)
@@ -349,6 +367,9 @@ class RockClassification:
         ax4.sharey(ax3); ax5.sharey(ax3)
         axs = [ax1, ax2, ax3, ax4, ax5]
 
+        if self.cutoffs is None:
+            self.cutoffs = np.linspace(0.1, 1000, self.n_classes+1)
+
         # Spatial plot of core data
         ax1.scatter(self.x, self.y, marker='*', c='k', s=self.sw)
         im1 = ax1.scatter(self.longi, self.lati, c=self.q, cmap=self.cmap0, s=self.s1, vmax=0.35, transform=plate, zorder=2)
@@ -356,7 +377,8 @@ class RockClassification:
         gl = ax1.gridlines(draw_labels=True)
         gl.top_labels = gl.right_labels = False
         gl.xformatter, gl.yformatter = LONGITUDE_FORMATTER, LATITUDE_FORMATTER
-        cb1 = plt.colorbar(im1, pad=0.04, fraction=0.046); cb1.set_label('Porosity [v/v]', rotation=270, labelpad=15)
+        cb1 = plt.colorbar(im1, pad=0.04, fraction=0.046)
+        cb1.set_label('Porosity [v/v]', rotation=270, labelpad=15)
         ax1.vlines(self.x, self.ymin, self.y, color='k', ls='--', alpha=self.alpha)
         ax1.hlines(self.y, self.xmin, self.x, color='k', ls='--', alpha=self.alpha)
         ax1.set(xlim=(self.xmin, self.xmax), ylim=(self.ymin, self.ymax), xlabel='Surface Longitude', ylabel='Surface Latitude')
@@ -365,15 +387,18 @@ class RockClassification:
         # Poro-vs-Perm with Classification Values
         if self.method=='leverett' or self.method=='winland':
             im2 = ax2.scatter(self.p, self.k, c=self.v, cmap=self.cmap, s=self.s2, edgecolor='k', linewidth=0.5)
-            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
+            cb = plt.colorbar(im2, pad=0.04, fraction=0.046)
+            cb.set_label(self.lab, rotation=270, labelpad=15)
             ax2.set(xlim=(0,self.phimax))
             for i, m in enumerate(self.mask):
-                ax2.plot(self.lin_poro, self.lin_perm_med[i], c=self.colors[i])
+                ax2.plot(self.lin_poro, self.lin_perm_med[i], c=self.colors[i], label='$C_{}$={:.2f}'.format(i, self.cutoffs[i+1]))
+                ax2.legend(loc='upper center', fancybox=True, facecolor='lightgrey', edgecolor='k', ncol=len(self.cutoffs)-1)
                 ax2.fill_between(self.lin_poro, self.lin_perm_low[i], self.lin_perm_high[i], color=self.colors[i], alpha=self.alphag)
         elif self.method=='lorenz':
-            cmap2  = ListedColormap(self.colors[:len(self.cutoffs)])
+            cmap2  = ListedColormap(self.colors[:len(self.cutoffs)][::-1])
             im2 = ax2.scatter(self.p, self.k, c=self.v, cmap=self.cmap, s=self.s2, edgecolor='k', linewidth=0.5)
-            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
+            cb = plt.colorbar(im2, pad=0.04, fraction=0.046)
+            cb.set_label(self.lab, rotation=270, labelpad=15)
             ax21 = ax2.twinx().twiny()
             ax21.scatter(np.sort(self.cp), np.sort(self.ck), c=self.v, cmap=cmap2)
             ax21.axline([0,0],[1,1], c='k', ls='--')
@@ -381,8 +406,10 @@ class RockClassification:
         else:
             cmap2  = ListedColormap(self.colors[:len(self.cutoffs)-1])
             im2 = ax2.scatter(self.p, self.k, c=self.d['CLASS'], cmap=cmap2, s=self.s2, edgecolor='k', linewidth=0.5)
-            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
-            cb.set_ticks(np.arange(1,self.n_classes+1)); cb.set_ticklabels(np.arange(1,self.n_classes+1))
+            cb = plt.colorbar(im2, pad=0.04, fraction=0.046)
+            cb.set_label(self.lab, rotation=270, labelpad=15)
+            cb.set_ticks(np.arange(1,self.n_classes+1))
+            cb.set_ticklabels(np.arange(1,self.n_classes+1))
         ax2.set_yscale('log')
         ax2.set(xlabel='Porosity [v/v]', ylabel='Permeability [mD]')
 
@@ -406,16 +433,14 @@ class RockClassification:
         ax4.set(xlabel='Permeability [mD]', xscale='log')
 
         # Rock Class vs depth
+        lab = self.lab.split(' ')[0]
         for i in range(self.n_classes):
-            if self.method != 'lorenz':
-                ax5.fill_betweenx(self.z, 0, self.t, where=(self.t==i+1), color=self.colors[i])
-            else:
-                ax5.fill_betweenx(self.z, 0, self.t, where=(self.t==i), color=self.colors[i])
-        ax5.set(xlabel='{} Rock Class'.format(self.mthd), xlim=(0.25, self.n_classes+0.25))
+            ax5.fill_betweenx(self.z, 0, self.t, where=(self.t==i+1), color=self.colors[i])
+        ax5.set(xlabel='Rock Class', xlim=(0.25, self.n_classes+0.25))
         ax5.set_xticks(np.arange(1,self.n_classes+1)); ax5.set_xticklabels(np.arange(1,self.n_classes+1))
 
         # plot settings
-        fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {} | {} method'.format(self.well_number, self.wid, self.mthd), weight='bold')
+        fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {} | {} method'.format(self.well_number, self.wid, lab), weight='bold')
         for ax in axs:
             ax.grid(True, which='both', alpha=self.alphag)
         plt.tight_layout()
@@ -440,8 +465,9 @@ if __name__ == '__main__':
     parser.add_argument('--file', type=str, default='GULFCOAST & TX CORE.csv', help='Core data file')
     parser.add_argument('--outfile', type=str, default='GULFCOAST & TX CORE postprocess.csv', help='Postprocessed core data file')
     parser.add_argument('--well_number', type=int, default=0, help='Well number to process')
-    parser.add_argument('--method', type=str, default='leverett', help='Classification method')
     parser.add_argument('--n_classes', type=int, default=None, help='Number of classes')
+    parser.add_argument('--method', type=str, default='leverett', help='Classification method')
+    parser.add_argument('--birch_threshold', type=float, default=0.1, help='Threshold for Birch method')
     parser.add_argument('--cutoffs', type=list, default=None, help='Cutoffs for classification')
     parser.add_argument('--minpts', type=int, default=30, help='Minimum number of points per well')
     parser.add_argument('--random_state', type=int, default=2024, help='Random state for reproducibility')
