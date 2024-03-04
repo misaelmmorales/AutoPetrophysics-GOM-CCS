@@ -11,7 +11,6 @@ Morales, M. M., Christie, M., Rabinovich, V., Torres-Verdin, C., and Pyrcz, M. (
   <img src="https://github.com/misaelmmorales/SPGlobal-GOM-CCS/blob/main/figures/estimation_well_42706403800000.png" width=1000>
 </p> 
 
-
 <p align="center">
-  <img src="https://github.com/misaelmmorales/SPGlobal-GOM-CCS/blob/main/figures/ARC_dashboard_17711405550100.png" width=1000>
+  <img src="https://github.com/misaelmmorales/SPGlobal-GOM-CCS/blob/main/figures/ ARC_dashboard_42702401710000_leverett.png" width=1000>
 </p>
