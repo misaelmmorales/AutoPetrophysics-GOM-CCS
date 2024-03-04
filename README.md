@@ -12,5 +12,5 @@ Morales, M. M., Christie, M., Rabinovich, V., Torres-Verdin, C., and Pyrcz, M. (
 </p> 
 
 <p align="center">
-  <img src="https://github.com/misaelmmorales/SPGlobal-GOM-CCS/blob/main/figures/ ARC_dashboard_42702401710000_leverett.png" width=1000>
+  <img src="https://github.com/misaelmmorales/SPGlobal-GOM-CCS/blob/main/figures/ARC_dashboard_42702401710000_leverett.png" width=1000>
 </p>
