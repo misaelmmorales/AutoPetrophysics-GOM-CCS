@@ -59,7 +59,6 @@ class RockClassification:
                        cmap0:str='plasma', cmap:str='jet', 
                        showfig:bool=True, figsize=(15,9), savefig:bool=True,
                        return_data:bool=False, verbose:bool=True,
-                       **kwargs
                        ):
         
         self.folder          = folder
@@ -187,16 +186,13 @@ class RockClassification:
             assert self.n_classes is not None, 'Number of classes is required for ML methods'
             assert self.n_classes < 6, 'Maximum number of classes is 5'
             assert self.cutoffs is None, 'Cutoffs are not required for ML methods'
-
         elif self.method in self.ph_methods:
             assert self.cutoffs is not None, 'Cutoffs are required for physics-based methods'
             assert np.array_equal(self.cutoffs, np.sort(self.cutoffs)), 'Cutoffs must be in ascending order'
             assert self.n_classes is None, 'Number of classes is not required for physics-based methods'
             self.n_classes = len(self.cutoffs)
-        
         else:
             raise ValueError(self.method_err_msg)    
-        
         return None
     
     def calc_values(self):
@@ -204,7 +200,6 @@ class RockClassification:
         self.lati, self.longi = self.all_data['SURFACE_LATITUDE'], self.all_data['SURFACE_LONGITUDE']
         self.ymin, self.ymax  = self.lati.min()-0.5,  self.lati.max()+0.5
         self.xmin, self.xmax  = self.longi.min()-1.0, self.longi.max()+1.0
-
         self.d = self.well_core[self.wid]
         self.x, self.y = self.d['SURFACE_LONGITUDE'], self.d['SURFACE_LATITUDE']
         self.p, self.k, self.logk = self.d['PORO']/100, self.d['PERM'], np.log10(self.d['PERM'])
@@ -222,8 +217,7 @@ class RockClassification:
 
         self.lin_poro = np.linspace(0, self.phimax, 50)
         self.lin_perm_low, self.lin_perm_med, self.lin_perm_high = [], [], []
-        self.lin_X = pd.DataFrame({'PORO':np.linspace(0, self.phimax, len(self.d)), 
-                                   'PERM':np.linspace(self.kmin, self.kmax, len(self.d))})
+        self.lin_X = pd.DataFrame({'PORO':np.linspace(0, self.phimax, len(self.d)), 'PERM':np.linspace(self.kmin, self.kmax, len(self.d))})
 
         if self.prop == 'PORO':
             self.q = self.all_data['PORO']/100
@@ -238,40 +232,51 @@ class RockClassification:
         self.lab = 'K-Means Class'
         self.clf = make_pipeline(MinMaxScaler(), KMeans(n_clusters=self.n_classes, random_state=self.random_state))
         self.clf.fit(self.X)
-        self.d['CLASS'] = self.clf.predict(self.X) + 1
-        self.v = self.clf.predict(self.lin_X) + 1
+        sorted_centroids = np.argsort(self.clf.steps[-1][1].cluster_centers_.sum(axis=1))
+        label_map = {sorted_centroids[i]:i for i in range(self.n_classes)}
+        self.d['CLASS'] = np.array([label_map[i] for i in self.clf.predict(self.X)])+1
+        self.v = np.array([label_map[i] for i in self.clf.predict(self.lin_X)])+1
         return None
 
     def calc_bisectkmeans(self):
         self.lab = 'Bisecting-K-Means Class'
         self.clf = make_pipeline(MinMaxScaler(), BisectingKMeans(n_clusters=self.n_classes, random_state=self.random_state))
-        self.clf.fit(self.X)
-        self.d['CLASS'] = self.clf.predict(self.X) + 1
-        self.v = self.clf.predict(self.lin_X) + 1
+        self.clf.fit(self.X)   
+        sorted_centroids = np.argsort(self.clf.steps[-1][1].cluster_centers_.sum(axis=1))
+        label_map = {sorted_centroids[i]:i for i in range(self.n_classes)}
+        self.d['CLASS'] = np.array([label_map[i] for i in self.clf.predict(self.X)])+1
+        self.v = np.array([label_map[i] for i in self.clf.predict(self.lin_X)])+1
         return None
     
     def calc_gmm(self):
         self.lab = 'GMM Class'
         self.clf = make_pipeline(MinMaxScaler(), GaussianMixture(n_components=self.n_classes, random_state=self.random_state))
         self.clf.fit(self.X)
-        self.d['CLASS'] = self.clf.predict(self.X) + 1
-        self.v = self.clf.predict(self.lin_X) + 1
+        sorted_centroids = np.argsort(self.clf.steps[-1][1].means_.sum(axis=1))
+        label_map = {sorted_centroids[i]:i for i in range(self.n_classes)}
+        self.d['CLASS'] = np.array([label_map[i] for i in self.clf.predict(self.X)])+1
+        self.v  = np.array([label_map[i] for i in self.clf.predict(self.lin_X)])+1
         return None
     
     def calc_birch(self):
         self.lab = 'Birch Class'
         self.clf = make_pipeline(MinMaxScaler(), Birch(n_clusters=self.n_classes, threshold=self.birch_threshold))
         self.clf.fit(self.X)
-        self.d['CLASS'] = self.clf.predict(self.X) + 1
-        self.v = self.clf.predict(self.lin_X) + 1
+        sorted_centroids = np.argsort(self.clf.steps[-1][1].subcluster_centers_.sum(axis=1))
+        sublabel_map = {sorted_centroids[i]:i for i in range(len(sorted_centroids))}
+        subpreds = np.array([sublabel_map[i] for i in self.clf.predict(self.X)])
+        label_map = {label:i for i, label in enumerate(np.unique(subpreds)[::-1])}
+        self.d['CLASS'] = np.array([label_map[i] for i in subpreds])+1
+        lin_subpreds = np.array([sublabel_map[i] for i in self.clf.predict(self.lin_X)])
+        lin_label_map = {label:i for i, label in enumerate(np.unique(lin_subpreds)[::-1])}
+        self.v = np.array([lin_label_map[i] for i in lin_subpreds])+1
         return None
     
     def calc_leverett(self):
-        self.cutoffs       = [0] + self.cutoffs
-        self.lab           = 'Leverett $\sqrt{k/\phi}$'
-        self.mask          = []
-        self.color_centers = []
-        self.v             = np.sqrt(self.k/self.p)
+        self.cutoffs = [0] + self.cutoffs
+        self.lab     = 'Leverett $\sqrt{k/\phi}$'
+        self.v       = np.sqrt(self.k/self.p)
+        self.mask, self.color_centers = [], []
         def leverett_fun(w, l=self.lin_poro):
             return (w**2 * l)
         for i in range(len(self.cutoffs)-1):
@@ -286,11 +291,10 @@ class RockClassification:
         return None
     
     def calc_winland(self):
-        self.cutoffs       = [0] + self.cutoffs
-        self.lab           = 'Winland $R_{35}$'
-        self.mask          = []
-        self.color_centers = []
-        self.v = self.k**self.kexp * 10**self.texp / self.p**self.pexp
+        self.cutoffs = [0] + self.cutoffs
+        self.lab     = 'Winland $R_{35}$'
+        self.v       = self.k**self.kexp * 10**self.texp / self.p**self.pexp
+        self.mask, self.color_centers = [], []
         def winland_fun(r35, l=self.lin_poro):
             return ((r35 * l**self.pexp) / 10**self.texp)**(1/self.kexp)
         for i in range(len(self.cutoffs)-1):
@@ -387,8 +391,7 @@ class RockClassification:
         # Poro-vs-Perm with Classification Values
         if self.method=='leverett' or self.method=='winland':
             im2 = ax2.scatter(self.p, self.k, c=self.v, cmap=self.cmap, s=self.s2, edgecolor='k', linewidth=0.5)
-            cb = plt.colorbar(im2, pad=0.04, fraction=0.046)
-            cb.set_label(self.lab, rotation=270, labelpad=15)
+            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
             ax2.set(xlim=(0,self.phimax))
             for i, m in enumerate(self.mask):
                 ax2.plot(self.lin_poro, self.lin_perm_med[i], c=self.colors[i], label='$C_{}$={:.2f}'.format(i, self.cutoffs[i+1]))
@@ -397,8 +400,7 @@ class RockClassification:
         elif self.method=='lorenz':
             cmap2  = ListedColormap(self.colors[:len(self.cutoffs)][::-1])
             im2 = ax2.scatter(self.p, self.k, c=self.v, cmap=self.cmap, s=self.s2, edgecolor='k', linewidth=0.5)
-            cb = plt.colorbar(im2, pad=0.04, fraction=0.046)
-            cb.set_label(self.lab, rotation=270, labelpad=15)
+            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
             ax21 = ax2.twinx().twiny()
             ax21.scatter(np.sort(self.cp), np.sort(self.ck), c=self.v, cmap=cmap2)
             ax21.axline([0,0],[1,1], c='k', ls='--')
@@ -406,10 +408,8 @@ class RockClassification:
         else:
             cmap2  = ListedColormap(self.colors[:len(self.cutoffs)-1])
             im2 = ax2.scatter(self.p, self.k, c=self.d['CLASS'], cmap=cmap2, s=self.s2, edgecolor='k', linewidth=0.5)
-            cb = plt.colorbar(im2, pad=0.04, fraction=0.046)
-            cb.set_label(self.lab, rotation=270, labelpad=15)
-            cb.set_ticks(np.arange(1,self.n_classes+1))
-            cb.set_ticklabels(np.arange(1,self.n_classes+1))
+            cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
+            cb.set_ticks(np.arange(1,self.n_classes+1)); cb.set_ticklabels(np.arange(1,self.n_classes+1))
         ax2.set_yscale('log')
         ax2.set(xlabel='Porosity [v/v]', ylabel='Permeability [mD]')
 
