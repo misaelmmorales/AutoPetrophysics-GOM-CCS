@@ -18,7 +18,6 @@
 # See the License for the specific language governing permissions and      #
 # limitations under the License.                                           #
 ############################################################################
-
 import os, argparse, time
 import numpy as np
 import pandas as pd
@@ -95,13 +94,12 @@ class RockClassification:
         self.verbose         = verbose
         self.incols          = ['PORO', 'PERM', 'INTERVAL_DEPTH','SURFACE_LATITUDE','SURFACE_LONGITUDE']
         self.outcols         = ['UWI', 'INTERVAL_DEPTH', 'SURFACE_LATITUDE', 'SURFACE_LONGITUDE', 'PORO', 'PERM', 'CLASS']
-        self.colors          = ['firebrick', 'dodgerblue', 'seagreen', 'gold', 'black']
-        self.markers         = ['o', 's', 'D', '^', 'v']
+        self.colors          = ['dodgerblue', 'seagreen', 'firebrick', 'gold', 'black']
+        self.markers         = ['o', 's', 'D', '^', 'X']
         self.method_err_msg  = 'Invalid method. Choose between ("kmeans", "bisectkmeans", "gmm", "birch", "leverett", "winland", "lorenz")'
         self.ml_methods      = ['kmeans', 'gmm', 'birch', 'bisectkmeans']
         self.ph_methods      = ['leverett', 'winland', 'lorenz']
         self.all_methods     = self.ml_methods + self.ph_methods
-        self.mthd = self.method.upper() if self.method in self.ml_methods else self.method.capitalize()
 
     '''
     Main routines
@@ -119,6 +117,7 @@ class RockClassification:
         postprocess_dfs = []
         self.bigloader()
         print('-'*80+'\n'+' '*20+'Processing Core2Log Rock Classification')
+        self.mthd = self.method.upper() if self.method in self.ml_methods else self.method.capitalize()
         print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(self.mthd, self.n_classes, self.cutoffs)+'\n'+'-'*80)
         for i in tqdm(range(len(self.well_core)), desc='Processing well(s)', unit=' well'):
             self.well_number = i
@@ -135,6 +134,25 @@ class RockClassification:
         postprocess_df = postprocess_df[self.outcols]
         postprocess_df.to_csv(outname, index=False)
         print('Done!'+'\n'+'-'*80)
+        return None
+       
+    def run_comparison(self, figsize=(20,12), n_classes:int=3, leverett_cutoffs=[10,20,40], winland_cutoffs=[150,300,500], lorenz_cutoffs=[0.5,2,5]):
+        print('-'*80+'\n'+' '*23+'Compare Rock Classification Methods'+'\n'+'-'*80)
+        print('Number of Classes: {}'.format(n_classes))
+        print('Leverett Cutoffs: {}\nWinland Cutoffs: {}\nLorenz Cutoffs: {}'.format(leverett_cutoffs, winland_cutoffs, lorenz_cutoffs))
+        print('-'*80)
+        len_leverett, len_winland, len_lorenz = len(leverett_cutoffs), len(winland_cutoffs), len(lorenz_cutoffs)
+        assert len_leverett == len_winland == len_lorenz  == n_classes, 'Number of cutoffs and classes must be the same for all methods'
+        self.bigloader()
+        self.comp_classes = n_classes
+        self.all_classes, self.all_labels = {}, []
+        lati, longi = self.all_data['SURFACE_LATITUDE'][self.well_number], self.all_data['SURFACE_LONGITUDE'][self.well_number]
+        wid = self.uwi_clean[self.well_number]
+        print('-'*80+'\n'+'Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, wid, lati, longi))
+        print('Well shape: {}'.format(self.well_core[self.uwi_clean[self.well_number]].shape))
+        print('-'*80)
+        self.calc_comparisons(n_classes, leverett_cutoffs, winland_cutoffs, lorenz_cutoffs)
+        self.plot_comparison(figsize)
         return None
     
     '''
@@ -205,7 +223,7 @@ class RockClassification:
         self.p, self.k, self.logk = self.d['PORO']/100, self.d['PERM'], np.log10(self.d['PERM'])
         self.X = pd.DataFrame({'PORO':self.p, 'PERM':self.logk})
         self.d.loc[:,'CLASS'] = np.zeros_like(self.p, dtype=int)
-
+        
         if self.phimin is None:
             self.phimin = self.p.min()
         if self.phimax is None:
@@ -214,18 +232,18 @@ class RockClassification:
             self.kmin = self.k.min()
         if self.kmax is None:
             self.kmax = self.k.max()
-
+        
         self.lin_poro = np.linspace(0, self.phimax, 50)
         self.lin_perm_low, self.lin_perm_med, self.lin_perm_high = [], [], []
         self.lin_X = pd.DataFrame({'PORO':np.linspace(0, self.phimax, len(self.d)), 'PERM':np.linspace(self.kmin, self.kmax, len(self.d))})
-
+        
         if self.prop == 'PORO':
             self.q = self.all_data['PORO']/100
         elif self.prop == 'PERM':
             self.q = np.log10(self.all_data['PERM'])
         else:
             raise ValueError('Invalid property to display. Choose between ("PORO", "PERM")')
-                
+        
         return None
     
     def calc_kmeans(self):
@@ -353,6 +371,7 @@ class RockClassification:
     def make_header(self):
         print('-'*80+'\n'+' '*16+'Automatic Core2Log Rock Classification Dashboard'+'\n'+'-'*80)
         print('Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, self.wid, self.lati[self.well_number], self.longi[self.well_number]))
+        self.mthd = self.method.upper() if self.method in self.ml_methods else self.method.capitalize()
         print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(self.mthd, self.n_classes, self.cutoffs))
         print('Well shape: {}'.format(self.d.shape))
         print('-'*80)
@@ -362,7 +381,6 @@ class RockClassification:
         fig   = plt.figure(figsize=self.figsize)
         gs    = GridSpec(6, 6, figure=fig)
         plate = crs.PlateCarree()
-
         ax1 = fig.add_subplot(gs[:3, :3], projection=plate)
         ax2 = fig.add_subplot(gs[3:, :3])
         ax3 = fig.add_subplot(gs[:, 3])
@@ -375,39 +393,53 @@ class RockClassification:
             self.cutoffs = np.linspace(0.1, 1000, self.n_classes+1)
 
         # Spatial plot of core data
-        ax1.scatter(self.x, self.y, marker='*', c='k', s=self.sw)
+        ax1.scatter(self.x, self.y, marker='*', c='k', s=self.sw, edgecolor='k', lw=0.5)
         im1 = ax1.scatter(self.longi, self.lati, c=self.q, cmap=self.cmap0, s=self.s1, vmax=0.35, transform=plate, zorder=2)
-        ax1.coastlines(resolution='50m', color='black', linewidth=2, zorder=1)
+        ax1.coastlines(resolution='50m', color='black', lw=2, zorder=1)
         gl = ax1.gridlines(draw_labels=True)
         gl.top_labels = gl.right_labels = False
         gl.xformatter, gl.yformatter = LONGITUDE_FORMATTER, LATITUDE_FORMATTER
         cb1 = plt.colorbar(im1, pad=0.04, fraction=0.046)
         cb1.set_label('Porosity [v/v]', rotation=270, labelpad=15)
-        ax1.vlines(self.x, self.ymin, self.y, color='k', ls='--', alpha=self.alpha)
-        ax1.hlines(self.y, self.xmin, self.x, color='k', ls='--', alpha=self.alpha)
+        ax1.vlines(self.x, self.ymin, self.y, color='k', ls='--', alpha=self.alpha, lw=1)
+        ax1.hlines(self.y, self.xmin, self.x, color='k', ls='--', alpha=self.alpha, lw=1)
         ax1.set(xlim=(self.xmin, self.xmax), ylim=(self.ymin, self.ymax), xlabel='Surface Longitude', ylabel='Surface Latitude')
         ax1.patch.set_facecolor('lightgrey')
 
         # Poro-vs-Perm with Classification Values
         if self.method=='leverett' or self.method=='winland':
-            im2 = ax2.scatter(self.p, self.k, c=self.v, cmap=self.cmap, s=self.s2, edgecolor='k', linewidth=0.5)
+            im2 = ax2.scatter(self.p, self.k, c=self.v, cmap=self.cmap, s=self.s2, edgecolor='k', lw=0.5)
             cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
             ax2.set(xlim=(0,self.phimax))
-            for i, m in enumerate(self.mask):
+            for i in range(len(self.mask)):
                 ax2.plot(self.lin_poro, self.lin_perm_med[i], c=self.colors[i], label='$C_{}$={:.2f}'.format(i, self.cutoffs[i+1]))
                 ax2.legend(loc='upper center', fancybox=True, facecolor='lightgrey', edgecolor='k', ncol=len(self.cutoffs)-1)
                 ax2.fill_between(self.lin_poro, self.lin_perm_low[i], self.lin_perm_high[i], color=self.colors[i], alpha=self.alphag)
+        
         elif self.method=='lorenz':
-            cmap2  = ListedColormap(self.colors[:len(self.cutoffs)][::-1])
-            im2 = ax2.scatter(self.p, self.k, c=self.v, cmap=self.cmap, s=self.s2, edgecolor='k', linewidth=0.5)
+            cmap2  = ListedColormap(self.colors[:len(self.cutoffs)])
+            im2 = ax2.scatter(self.p, self.k, c=self.v, cmap=self.cmap, s=self.s2, edgecolor='k', lw=0.5)
             cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
             ax21 = ax2.twinx().twiny()
-            ax21.scatter(np.sort(self.cp), np.sort(self.ck), c=self.v, cmap=cmap2)
+            ax21.scatter(np.sort(self.cp), np.sort(self.ck), c=self.v, cmap=cmap2, marker='>', s=self.s1)
+            ax21.scatter(self.cv, np.sort(self.ck), c=self.cv, cmap=cmap2, marker='x', s=self.s1)
+            handles = []
+            for i in range(self.n_classes):
+                handles.append(plt.Line2D([], [], label='$C_{}={:.2f}$'.format(i+1, self.cutoffs[i]), marker=self.markers[i],
+                                           color=self.colors[i], markersize=self.s1, markeredgecolor='k', linestyle='None'))
+            ax21.legend(handles=handles, loc='upper center', fancybox=True, facecolor='lightgrey', edgecolor='k', ncol=self.n_classes)
             ax21.axline([0,0],[1,1], c='k', ls='--')
-            ax21.set(xlim=(-0.01,1.025), ylim=(-0.025,1.025))
+            ax21.set(xlim=(-0.01,1.025), ylim=(-0.025,1.025), yticklabels=[], xlabel='Stratigraphic modified Lorenz coefficients')
+            ax21.grid(True, which='both', alpha=self.alphag)
+       
         else:
             cmap2  = ListedColormap(self.colors[:len(self.cutoffs)-1])
-            im2 = ax2.scatter(self.p, self.k, c=self.d['CLASS'], cmap=cmap2, s=self.s2, edgecolor='k', linewidth=0.5)
+            for i in range(self.n_classes):
+                p_ = self.p[self.d['CLASS']==i+1]
+                k_ = self.k[self.d['CLASS']==i+1]
+                ax2.scatter(p_, k_, c=self.colors[i], marker=self.markers[i], s=self.s2, edgecolor='k', lw=0.5, label='$C_{}$'.format(i+1))
+            im2 = ax2.scatter(self.p, self.k, c=self.d['CLASS'], cmap=cmap2, marker=',', s=1e-3)
+            ax2.legend(loc='upper center', fancybox=True, facecolor='lightgrey', edgecolor='k', ncol=self.n_classes)
             cb = plt.colorbar(im2, pad=0.04, fraction=0.046); cb.set_label(self.lab, rotation=270, labelpad=15)
             cb.set_ticks(np.arange(1,self.n_classes+1)); cb.set_ticklabels(np.arange(1,self.n_classes+1))
         ax2.set_yscale('log')
@@ -415,21 +447,15 @@ class RockClassification:
 
         # Core porosity vs depth
         for i in range(self.n_classes):
-            c = self.d['CLASS']
-            if self.method != 'lorenz':
-                ax3.scatter(self.p[c==i+1], self.d.index[c==i+1], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
-            else:
-                ax3.scatter(self.p[c==i], self.d.index[c==i], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
+            cl = self.d['CLASS']
+            ax3.scatter(self.p[cl==i+1], self.d.index[cl==i+1], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
         ax3.set(xlabel='Porosity [v/v]', ylabel='Depth [ft]')
         ax3.invert_yaxis()
 
         # Core permeability vs depth
         for i in range(self.n_classes):
-            c = self.d['CLASS']
-            if self.method != 'lorenz':
-                ax4.scatter(self.k[c==i+1], self.d.index[c==i+1], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
-            else:
-                ax4.scatter(self.k[c==i], self.d.index[c==i], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
+            cl = self.d['CLASS']
+            ax4.scatter(self.k[cl==i+1], self.d.index[cl==i+1], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
         ax4.set(xlabel='Permeability [mD]', xscale='log')
 
         # Rock Class vs depth
@@ -441,17 +467,92 @@ class RockClassification:
 
         # plot settings
         fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {} | {} method'.format(self.well_number, self.wid, lab), weight='bold')
-        for ax in axs:
-            ax.grid(True, which='both', alpha=self.alphag)
+        [ax.grid(True, which='both', alpha=self.alphag) for ax in axs]
         plt.tight_layout()
-        plt.savefig('figures/ARC_dashboard_{}.png'.format(self.wid), dpi=300) if self.savefig else None
+        plt.savefig('figures/ARC_dashboard_{}_{}.png'.format(self.wid, self.method), dpi=300) if self.savefig else None
+        plt.show() if self.showfig else None
+        return None
+    
+    def calc_comparisons(self, n_classes:int, leverett_cutoffs, winland_cutoffs, lorenz_cutoffs):
+        for _, m in enumerate(self.all_methods):
+            self.method = m
+            if m in self.ml_methods:
+                self.n_classes = n_classes
+                self.cutoffs = None
+            elif m in self.ph_methods:
+                self.n_classes = None
+                if m == 'leverett':
+                    self.cutoffs = leverett_cutoffs
+                elif m == 'winland':
+                    self.cutoffs = winland_cutoffs
+                elif m == 'lorenz':
+                    self.cutoffs = lorenz_cutoffs
+            self.check_nclass_cutoffs()
+            self.calc_values()
+            self.calculate_method_clf()
+            self.make_class_array()
+            self.all_classes[m] = self.t
+            self.all_labels.append(self.lab.split(' ')[0])
+        self.mean_class = np.round(np.array(list(self.all_classes.values())).mean(axis=0))
+        return None
+
+    def plot_comparison(self, figsize=(20,12)):
+        fig = plt.figure(figsize=figsize)
+        gs  = GridSpec(3, 10, figure=fig)
+        ax1  = fig.add_subplot(gs[:2, 0])
+        ax2  = fig.add_subplot(gs[:2, 1])
+        ax3  = fig.add_subplot(gs[:2, 2])
+        ax4  = fig.add_subplot(gs[:2, 3])
+        ax5  = fig.add_subplot(gs[:2, 4])
+        ax6  = fig.add_subplot(gs[:2, 5])
+        ax7  = fig.add_subplot(gs[:2, 6])
+        ax8  = fig.add_subplot(gs[:2, 7])
+        ax9  = fig.add_subplot(gs[:2, 8])
+        ax10 = fig.add_subplot(gs[:2, 9])
+        ax11 = fig.add_subplot(gs[2, :5])
+        ax12 = fig.add_subplot(gs[2, 5:])
+        dat_axs = [ax3, ax4, ax5, ax6, ax7, ax8, ax9]
+        top_axs = [ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8, ax9, ax10]
+        all_axs = [ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8, ax9, ax10, ax11, ax12]
+        [ax.invert_yaxis() for ax in top_axs]
+
+        for ax, method in zip(dat_axs, self.all_classes.keys()):
+            for i in range(self.comp_classes):
+                ax.fill_betweenx(self.z, 0, self.all_classes[method], where=(self.all_classes[method]==i+1), color=self.colors[i])
+            ax.set(title=self.all_labels.pop(0), xlim=(0.25, self.comp_classes+0.25), 
+                   xticks=np.arange(1, self.comp_classes+1), xticklabels=np.arange(1, self.comp_classes+1))
+
+        for i in range(self.n_classes):
+            p_, k_, idz = self.p[self.mean_class==i+1], self.k[self.mean_class==i+1], self.d.index[self.mean_class==i+1]
+            ax1.scatter(p_, idz, c=self.colors[i], marker=self.markers[i], s=self.ms)
+            ax2.scatter(k_, idz, c=self.colors[i], marker=self.markers[i], s=self.ms)
+            ax10.fill_betweenx(self.z, 0, self.mean_class, where=(self.mean_class==i+1), color=self.colors[i])
+            ax12.scatter(p_, k_, c=self.colors[i], marker=self.markers[i], s=self.s2, edgecolor='k', lw=0.5, label='$C_{}$'.format(i+1))
+        ax1.set(title='Porosity [v/v]', ylabel='Depth [ft]')
+        ax2.set(title='Permeability [mD]', xscale='log')
+        ax10.set(title='Mean Class', xlim=(0.25, self.comp_classes+0.25),
+                 xticks=np.arange(1, self.comp_classes+1), xticklabels=np.arange(1, self.comp_classes+1))
+        ax12.set(yscale='log', xlabel='Porosity [v/v]', ylabel='Permeability [mD]')
+        ax12.legend(loc='upper center', fancybox=True, facecolor='lightgrey', edgecolor='k', ncol=self.n_classes)
+
+        ax11.scatter(self.x, self.y, marker='*', c='k', s=self.sw, edgecolor='k', lw=0.5)
+        im11 = ax11.scatter(self.longi, self.lati, c=self.q, cmap=self.cmap0, s=self.s1, vmax=0.35)
+        cb1 = plt.colorbar(im11, pad=0.04, fraction=0.046)
+        cb1.set_label('Porosity [v/v]', rotation=270, labelpad=15)
+        ax11.vlines(self.x, self.ymin, self.y, color='k', ls='--', alpha=self.alpha, lw=1)
+        ax11.hlines(self.y, self.xmin, self.x, color='k', ls='--', alpha=self.alpha, lw=1)
+        ax11.set(xlim=(self.xmin, self.xmax), ylim=(self.ymin, self.ymax), xlabel='Surface Longitude', ylabel='Surface Latitude')
+
+        fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {}'.format(self.well_number, self.wid), weight='bold')
+        [ax.grid(True, which='both', alpha=self.alphag) for ax in all_axs]
+        plt.tight_layout()
+        plt.savefig('figures/Comparison_of_techniques_{}'.format(self.wid), dpi=300) if self.savefig else None
         plt.show() if self.showfig else None
         return None
 
 ###########################################################################
 ############################## MAIN ROUTINE ###############################
 ###########################################################################
-    
 def main(args):
     print('-'*80+'\n'+'Date:', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     print("Current Working Directory:", os.getcwd())
@@ -494,7 +595,6 @@ if __name__ == '__main__':
     parser.add_argument('--verbose', type=bool, default=True, help='Verbose')
     args = parser.parse_args()
     main(args)
-
 ###########################################################################
 ################################## END ####################################
 ###########################################################################
