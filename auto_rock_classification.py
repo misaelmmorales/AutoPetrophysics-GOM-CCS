@@ -558,7 +558,7 @@ def main(args):
     print("Current Working Directory:", os.getcwd())
     RockClassification(**vars(args)).run_dashboard()
     RockClassification(**vars(args)).run_processing()
-    RockClassification(**vars(args)).run_comparison(
+    RockClassification(**vars(args)).run_comparison()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Automatic Rock Classification for Core2Log')
