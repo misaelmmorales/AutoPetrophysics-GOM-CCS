@@ -3,7 +3,7 @@
 # OF POTENTIAL CO2 STORAGE SITES IN THE GULF OF MEXICO USING DEEP LEARNING #
 ############################################################################
 # Author: Misael M. Morales (github.com/misaelmmorales)                    #
-# Co-Authors: Dr. Michael Pyrcz, Dr. Carlos Torres-Verdin - UT Austin      #
+# Co-Authors: Oriyomi Raheem, Dr. Michael Pyrcz, Dr. Carlos Torres-Verdin  #
 # Co-Authors: Murray Christie, Vladimir Rabinovich - S&P Global            #
 # Date: 2024-03-01                                                         #
 ############################################################################
@@ -449,20 +449,20 @@ class RockClassification:
         for i in range(self.n_classes):
             cl = self.d['CLASS']
             ax3.scatter(self.p[cl==i+1], self.d.index[cl==i+1], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
-        ax3.set(xlabel='Porosity [v/v]', ylabel='Depth [ft]')
+        ax3.set(title='Porosity [v/v]', ylabel='Depth [ft]')
         ax3.invert_yaxis()
 
         # Core permeability vs depth
         for i in range(self.n_classes):
             cl = self.d['CLASS']
             ax4.scatter(self.k[cl==i+1], self.d.index[cl==i+1], c=self.colors[i], marker=self.markers[i], s=self.ms, edgecolor='gray', lw=0.5)
-        ax4.set(xlabel='Permeability [mD]', xscale='log')
+        ax4.set(title='Permeability [mD]', xscale='log')
 
         # Rock Class vs depth
         lab = self.lab.split(' ')[0]
         for i in range(self.n_classes):
             ax5.fill_betweenx(self.z, 0, self.t, where=(self.t==i+1), color=self.colors[i])
-        ax5.set(xlabel='Rock Class', xlim=(0.25, self.n_classes+0.25))
+        ax5.set(title='Rock Class', xlim=(0.25, self.n_classes+0.25))
         ax5.set_xticks(np.arange(1,self.n_classes+1)); ax5.set_xticklabels(np.arange(1,self.n_classes+1))
 
         # plot settings
