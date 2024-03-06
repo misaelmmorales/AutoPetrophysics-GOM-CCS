@@ -689,30 +689,28 @@ class TransferLearning(BaselineCorrection):
             if 'SP' in log_las.curvesdict.keys():
                 self.log_df = pd.DataFrame({'DEPT': log_las['DEPT'], 'SP': log_las['SP']})
                 self.log    = np.nan_to_num(np.array(self.log_df), nan=0)
-                print('Log raw:', self.log.shape) if self.verbose else None
                 self.calc_transfer_features(verbose=False)
-                print('Log expanded:', self.log.shape) if self.verbose else None
                 self.transfer_scaler()
                 d = np.expand_dims(self.log_norm, 0)
                 size = d.shape[1]
                 if size != 44055:
                     d = np.pad(d, ((0,0),(0,44055-size),(0,0)), mode='constant', constant_values=0.)
                     d = layers.Masking(mask_value=0.)(d)
-                self.sp_pred  = self.model.predict(d).squeeze().astype('float32')
+                self.sp_pred  = self.model.predict(d, verbose=0).squeeze().astype('float32')
                 if size != 44055:
                     self.sp_pred = self.sp_pred[:size]
                 self.csh_pred = self.calc_csh()
-                print('SP_pred:', self.sp_pred.shape) if self.verbose else None
                 self.transfer_inverse_scaler()
-                print('SP_pred_bt: {} | Csh_pred: {}'.format(self.log_.shape, self.csh_pred.shape)) if self.verbose else None
                 log_las.append_curve('SP_PRED', self.log_, unit='mV', descr='Predicted SP from baseline correction')
                 log_las.append_curve('CSH_PRED', self.csh_pred, unit='%', descr='Estimated Csh from predicted SP')
                 log_las.write('{}/{}'.format(self.out_folder, file), version=2.0)
         return None
     
-    def plot_transfer_results(self, filenum:int=100, figsize=(10,8), showfig:bool=True):
+    def plot_transfer_results(self, filenum:int=100, figsize=(10,8), showfig:bool=True, 
+                              add_title:bool=True, semilog1:bool=False):
         f = os.listdir(self.out_folder)[filenum]
-        d = lasio.read('{}/{}'.format(self.out_folder,f)).df()
+        l = lasio.read('{}/{}'.format(self.out_folder,f))
+        d = l.df()
         fig, axs = plt.subplots(1, 3, figsize=figsize, sharey=True)
         ax1, ax2, ax3 = axs
         if 'GR' in d.columns:
@@ -727,7 +725,8 @@ class TransferLearning(BaselineCorrection):
         else:
             mnem1 = d.columns[2]
             lb, ub = d[mnem1].min(), d[mnem1].max()
-        self.plot_curve(ax1, d, mnem1, lb, ub, 'g', units='')
+        unit1 = l.curvesdict[mnem1].unit
+        self.plot_curve(ax1, d, mnem1, lb, ub, 'g', units=unit1, semilog=semilog1)
         ax21, ax22 = ax2.twiny(), ax2.twiny()
         self.plot_curve(ax2, d, 'SP', -200, 50, 'magenta', units='mV')
         self.plot_curve(ax21, d, 'SP_NORM', -200, 50, 'darkmagenta', units='mV', pad=1.08)
@@ -741,7 +740,7 @@ class TransferLearning(BaselineCorrection):
             ax31 = ax3.twiny()
             self.plot_curve(ax3, d, 'VSH_SP', 0, 1, 'purple', units='/')
             self.plot_curve(ax31, d, 'CSH_PRED', 0, 1, 'k', ls='--', units='/', pad=1.08)
-        fig.suptitle('Estimation Results | {}'.format(f.split('.')[0]), weight='bold', fontsize=14)
+        fig.suptitle('Estimation Results | {}'.format(f.split('.')[0]), weight='bold', fontsize=14) if add_title else None
         ax1.set_ylabel('DEPTH [ft]', weight='bold')
         plt.gca().invert_yaxis(); plt.tight_layout()
         plt.savefig('figures/estimation_well_{}.png'.format(f.split('.')[0]), dpi=300) if self.save_fig else None
@@ -788,7 +787,7 @@ class TransferLearning(BaselineCorrection):
         sd, mu = self.scaler_values['sd'], self.scaler_values['mu']
         minvalue, maxvalue = self.scaler_values['min'], self.scaler_values['max']
         if self.scaler=='standard':
-            self.log_ = inv_data * sd[1] + mu[1]
+            self.log_ = inv_data * sd[1] #+ mu[1]
         elif self.scaler=='minmax':
             self.log_ = inv_data * (maxvalue[1] - minvalue[1]) + minvalue[1]
         elif self.scaler=='none':
