@@ -550,6 +550,53 @@ class RockClassification:
         plt.savefig('figures/Comparison_of_techniques_{}'.format(self.wid), dpi=300) if self.savefig else None
         plt.show() if self.showfig else None
         return None
+    
+    def spatial_map(self):
+        '''
+        incomplete! needs work
+        '''
+        folder = 'Data/UT Export core classification'
+        files  = os.listdir(folder)
+        all_wells = {}
+        all_uwi   = []
+        for i, file in enumerate(files):
+            df = pd.read_csv('{}/{}'.format(folder, file))
+            uwi = df['UWI'].values[0]
+            all_uwi.append(uwi)
+            lat = df['SURFACE_LATITUDE'].values[0]
+            lon = df['SURFACE_LONGITUDE'].values[0]
+            d = df[['INTERVAL_DEPTH','CLASS']]
+            x = {'LAT':lat, 'LON':lon, 'DAT':d}
+            all_wells[uwi] = x
+        #colors = ['dodgerblue', 'seagreen', 'firebrick', 'gold', 'black']
+        n_classes = np.unique(all_wells[all_uwi[0]]['DAT']['CLASS'])
+        colors = ['dimgrey', 'slategrey', 'firebrick']
+        cmap2  = ListedColormap(colors[:len(n_classes)])
+        #plot
+        fig = plt.figure(figsize=(10, 10))
+        ax = fig.add_subplot(111, projection='3d')
+        for well_data in all_wells.values():
+            lat = well_data['LAT']
+            lon = well_data['LON']
+            d = well_data['DAT']
+            z = np.linspace(d['INTERVAL_DEPTH'].min(), d['INTERVAL_DEPTH'].max(), len(d))
+            t = np.zeros_like(z)
+            class_values = d['CLASS'].values
+            for i in range(len(t)):
+                t[i] = class_values[np.argmin(np.abs(d['INTERVAL_DEPTH'].values[i] - z))]
+                t[i] = t[i - 1] if t[i] == 0 else t[i]
+            x = np.ones_like(z) * lon
+            y = np.ones_like(z) * lat
+            ax.scatter(x, y, z, c=t, marker='o', cmap=cmap2)
+        ax.set_xlabel('Longitude', weight='bold')
+        ax.set_ylabel('Latitude', weight='bold')
+        ax.set_zlabel('Depth [ft]', weight='bold')
+        ax.invert_zaxis()
+        ax.grid(alpha=0.1)
+        ax.view_init(azim=270, elev=90)
+        plt.show()
+        return None
+
 
 ###########################################################################
 ############################## MAIN ROUTINE ###############################
