@@ -104,12 +104,12 @@ class RockClassification:
     '''
     Main routines
     '''
-    def run_dashboard(self):
+    def run_dashboard(self, maketitle:bool=False):
         time0 = time.time()
         self.bigloader()
         self.preprocessing()
         self.calculate_method_clf()
-        self.postprocessing()
+        self.postprocessing(maketitle)
         print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
         return None
     
@@ -169,9 +169,9 @@ class RockClassification:
         self.make_header() if header else None
         return None
     
-    def postprocessing(self):
+    def postprocessing(self, maketitle:bool=False):
         self.make_class_array()
-        self.make_dashboard()
+        self.make_dashboard(maketitle)
         return None
     
     '''
@@ -377,7 +377,7 @@ class RockClassification:
         print('-'*80)
         return None  
         
-    def make_dashboard(self):
+    def make_dashboard(self, maketitle:bool=False):
         fig   = plt.figure(figsize=self.figsize)
         gs    = GridSpec(6, 6, figure=fig)
         plate = crs.PlateCarree()
@@ -466,7 +466,8 @@ class RockClassification:
         ax5.set_xticks(np.arange(1,self.n_classes+1)); ax5.set_xticklabels(np.arange(1,self.n_classes+1))
 
         # plot settings
-        fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {} | {} method'.format(self.well_number, self.wid, lab), weight='bold')
+        if maketitle:
+            fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {} | {} method'.format(self.well_number, self.wid, lab), weight='bold')
         [ax.grid(True, which='both', alpha=self.alphag) for ax in axs]
         plt.tight_layout()
         plt.savefig('figures/ARC_dashboard_{}_{}.png'.format(self.wid, self.method), dpi=300) if self.savefig else None
