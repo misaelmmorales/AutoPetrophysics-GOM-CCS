@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from datetime import datetime
+from scipy.interpolate import griddata
 
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -92,6 +93,7 @@ class RockClassification:
         self.savefig         = savefig
         self.return_data     = return_data
         self.verbose         = verbose
+        self.plate           = crs.PlateCarree()
         self.incols          = ['PORO', 'PERM', 'INTERVAL_DEPTH','SURFACE_LATITUDE','SURFACE_LONGITUDE']
         self.outcols         = ['UWI', 'INTERVAL_DEPTH', 'SURFACE_LATITUDE', 'SURFACE_LONGITUDE', 'PORO', 'PERM', 'CLASS']
         self.colors          = ['dodgerblue', 'seagreen', 'firebrick', 'gold', 'black']
@@ -380,8 +382,7 @@ class RockClassification:
     def make_dashboard(self, maketitle:bool=False):
         fig   = plt.figure(figsize=self.figsize)
         gs    = GridSpec(6, 6, figure=fig)
-        plate = crs.PlateCarree()
-        ax1 = fig.add_subplot(gs[:3, :3], projection=plate)
+        ax1 = fig.add_subplot(gs[:3, :3], projection=self.plate)
         ax2 = fig.add_subplot(gs[3:, :3])
         ax3 = fig.add_subplot(gs[:, 3])
         ax4 = fig.add_subplot(gs[:, 4])
@@ -394,7 +395,7 @@ class RockClassification:
 
         # Spatial plot of core data
         ax1.scatter(self.x, self.y, marker='*', c='k', s=self.sw, edgecolor='k', lw=0.5)
-        im1 = ax1.scatter(self.longi, self.lati, c=self.q, cmap=self.cmap0, s=self.s1, vmax=0.35, transform=plate, zorder=2)
+        im1 = ax1.scatter(self.longi, self.lati, c=self.q, cmap=self.cmap0, s=self.s1, vmax=0.35, transform=self.plate, zorder=2)
         ax1.coastlines(resolution='50m', color='black', lw=2, zorder=1)
         gl = ax1.gridlines(draw_labels=True)
         gl.top_labels = gl.right_labels = False
