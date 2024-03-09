@@ -157,6 +157,40 @@ class RockClassification:
         self.plot_comparison(figsize)
         return None
     
+    def run_spatial_map(self, figsize=(10,10),  npts:int=100, interp:str='linear', fill:bool=False, 
+                        cmap:str='turbo', vmin=0, vmax=0.5, shrink=0.33):
+        self.method='kmeans' if self.method is None else self.method
+        self.n_classes=3 if self.n_classes is None else self.n_classes
+        self.bigloader()
+        self.preprocessing()
+        x, y, p = [], [], []
+        for f in os.listdir(os.path.join(self.folder, self.subfolder)):
+            d = pd.read_csv('{}/{}/{}'.format(self.folder, self.subfolder, f))
+            c = d['CLASS']
+            u = np.unique(c)
+            x.append(d['SURFACE_LONGITUDE'].values[0])
+            y.append(d['SURFACE_LATITUDE'].values[0])
+            p.append(len(np.argwhere(c==u[-1]))/len(c))
+        gx, gy = np.meshgrid(np.linspace(min(x), max(x), npts), np.linspace(min(y), max(y), npts))
+        gp     = griddata((x, y), p, (gx, gy), method=interp)
+        fig = plt.figure(figsize=figsize)
+        ax  = fig.add_subplot(111, projection=self.plate)
+        if fill:
+            ax.contourf(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax)
+        else:
+            ax.contour(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax)
+        im1 = ax.scatter(x, y, c=p, s=self.s1, cmap=cmap, lw=0.25, vmin=vmin, vmax=vmax)
+        ax.coastlines(resolution='50m', color='black', lw=2, zorder=2)
+        cb = plt.colorbar(im1, shrink=shrink)
+        cb.set_label('Proportion of Sweet Spots', weight='bold', rotation=270, labelpad=15)
+        gl = ax.gridlines(draw_labels=True)
+        gl.right_labels = gl.top_labels = False
+        gl.xformatter, gl.yformatter = LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+        plt.tight_layout()
+        plt.savefig('figures/regional_sweetspots', dpi=300) if self.savefig else None
+        plt.show() if self.showfig else None
+        return None
+    
     '''
     Running commands
     '''
