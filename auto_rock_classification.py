@@ -116,6 +116,7 @@ class RockClassification:
         return None
     
     def run_processing(self):
+        time0 = time.time()
         postprocess_dfs = []
         self.bigloader()
         print('-'*80+'\n'+' '*20+'Processing Core2Log Rock Classification')
@@ -135,7 +136,7 @@ class RockClassification:
         postprocess_df = pd.concat(postprocess_dfs, ignore_index=True)
         postprocess_df = postprocess_df[self.outcols]
         postprocess_df.to_csv(outname, index=False)
-        print('Done!'+'\n'+'-'*80)
+        print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
         return None
        
     def run_comparison(self, figsize=(20,12), n_classes:int=3, leverett_cutoffs=[10,20,40], winland_cutoffs=[150,300,500], lorenz_cutoffs=[0.5,2,5]):
@@ -145,6 +146,7 @@ class RockClassification:
         print('-'*80)
         len_leverett, len_winland, len_lorenz = len(leverett_cutoffs), len(winland_cutoffs), len(lorenz_cutoffs)
         assert len_leverett == len_winland == len_lorenz  == n_classes, 'Number of cutoffs and classes must be the same for all methods'
+        time0 = time.time()
         self.bigloader()
         self.comp_classes = n_classes
         self.all_classes, self.all_labels = {}, []
@@ -155,40 +157,18 @@ class RockClassification:
         print('-'*80)
         self.calc_comparisons(n_classes, leverett_cutoffs, winland_cutoffs, lorenz_cutoffs)
         self.plot_comparison(figsize)
+        print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
         return None
     
     def run_spatial_map(self, figsize=(10,10),  npts:int=100, interp:str='linear', fill:bool=False, 
                         cmap:str='turbo', vmin=0, vmax=0.5, shrink=0.33):
+        time0 = time.time()
         self.method='kmeans' if self.method is None else self.method
         self.n_classes=3 if self.n_classes is None else self.n_classes
         self.bigloader()
         self.preprocessing()
-        x, y, p = [], [], []
-        for f in os.listdir(os.path.join(self.folder, self.subfolder)):
-            d = pd.read_csv('{}/{}/{}'.format(self.folder, self.subfolder, f))
-            c = d['CLASS']
-            u = np.unique(c)
-            x.append(d['SURFACE_LONGITUDE'].values[0])
-            y.append(d['SURFACE_LATITUDE'].values[0])
-            p.append(len(np.argwhere(c==u[-1]))/len(c))
-        gx, gy = np.meshgrid(np.linspace(min(x), max(x), npts), np.linspace(min(y), max(y), npts))
-        gp     = griddata((x, y), p, (gx, gy), method=interp)
-        fig = plt.figure(figsize=figsize)
-        ax  = fig.add_subplot(111, projection=self.plate)
-        if fill:
-            ax.contourf(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax)
-        else:
-            ax.contour(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax)
-        im1 = ax.scatter(x, y, c=p, s=self.s1, cmap=cmap, lw=0.25, vmin=vmin, vmax=vmax)
-        ax.coastlines(resolution='50m', color='black', lw=2, zorder=2)
-        cb = plt.colorbar(im1, shrink=shrink)
-        cb.set_label('Proportion of Sweet Spots', weight='bold', rotation=270, labelpad=15)
-        gl = ax.gridlines(draw_labels=True)
-        gl.right_labels = gl.top_labels = False
-        gl.xformatter, gl.yformatter = LONGITUDE_FORMATTER, LATITUDE_FORMATTER
-        plt.tight_layout()
-        plt.savefig('figures/regional_sweetspots', dpi=300) if self.savefig else None
-        plt.show() if self.showfig else None
+        self.plot_spatial_map(npts, interp, fill, cmap, vmin, vmax, shrink, figsize)
+        print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
         return None
     
     '''
@@ -586,7 +566,36 @@ class RockClassification:
         plt.show() if self.showfig else None
         return None
     
-    def spatial_map(self):
+    def plot_spatial_map(self, npts:int, interp:str, fill:bool, cmap, vmin, vmax, shrink, figsize=(10,10)):
+        x, y, p = [], [], []
+        for f in os.listdir(os.path.join(self.folder, self.subfolder)):
+            d = pd.read_csv('{}/{}/{}'.format(self.folder, self.subfolder, f))
+            c = d['CLASS']
+            u = np.unique(c)
+            x.append(d['SURFACE_LONGITUDE'].values[0])
+            y.append(d['SURFACE_LATITUDE'].values[0])
+            p.append(len(np.argwhere(c==u[-1]))/len(c))
+        gx, gy = np.meshgrid(np.linspace(min(x), max(x), npts), np.linspace(min(y), max(y), npts))
+        gp     = griddata((x, y), p, (gx, gy), method=interp)
+        fig = plt.figure(figsize=figsize)
+        ax  = fig.add_subplot(111, projection=self.plate)
+        if fill:
+            ax.contourf(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax)
+        else:
+            ax.contour(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax)
+        im1 = ax.scatter(x, y, c=p, s=self.s1, cmap=cmap, lw=0.25, vmin=vmin, vmax=vmax)
+        ax.coastlines(resolution='50m', color='black', lw=2, zorder=2)
+        cb = plt.colorbar(im1, shrink=shrink)
+        cb.set_label('Proportion of Sweet Spots', weight='bold', rotation=270, labelpad=15)
+        gl = ax.gridlines(draw_labels=True)
+        gl.right_labels = gl.top_labels = False
+        gl.xformatter, gl.yformatter = LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+        plt.tight_layout()
+        plt.savefig('figures/regional_sweetspots', dpi=300) if self.savefig else None
+        plt.show() if self.showfig else None
+        return None
+    
+    def spatial_depth_map(self):
         '''
         incomplete! needs work
         '''
@@ -603,7 +612,6 @@ class RockClassification:
             d = df[['INTERVAL_DEPTH','CLASS']]
             x = {'LAT':lat, 'LON':lon, 'DAT':d}
             all_wells[uwi] = x
-        #colors = ['dodgerblue', 'seagreen', 'firebrick', 'gold', 'black']
         n_classes = np.unique(all_wells[all_uwi[0]]['DAT']['CLASS'])
         colors = ['dimgrey', 'slategrey', 'firebrick']
         cmap2  = ListedColormap(colors[:len(n_classes)])
@@ -642,6 +650,7 @@ def main(args):
     RockClassification(**vars(args)).run_dashboard()
     RockClassification(**vars(args)).run_processing()
     RockClassification(**vars(args)).run_comparison()
+    RockClassification(**vars(args)).run_spatial_map()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Automatic Rock Classification for Core2Log')
