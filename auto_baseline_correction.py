@@ -26,9 +26,12 @@ import matplotlib.pyplot as plt
 
 import lasio
 from tqdm import tqdm
-from scipy import stats, signal
+from scipy import stats, signal, interpolate
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_squared_error
+
+from cartopy import crs
+from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 
 import keras
 import tensorflow as tf
@@ -681,6 +684,7 @@ class TransferLearning(BaselineCorrection):
         self.in_folder  = 'Data/UT Export 9-19'
         self.out_folder = 'Data/UT Export postprocess'
         self.model      = keras.models.load_model('baseline_correction_model.keras')
+        self.plate      = crs.PlateCarree()
     
     def make_transfer_prediction(self):
         files = os.listdir(self.in_folder)
@@ -868,6 +872,43 @@ class TransferLearning(BaselineCorrection):
             if linestyle != None:
                 ax.spines['top'].set_linestyle(linestyle)
             return None
+    
+    def plot_spatial_map(self, cmap='jet', vmin=0.0, vmax=0.35, method='linear'):
+        '''
+        incomplete! Needs work
+        '''
+        folder = 'Data/UT Export postprocess'
+        files  = os.listdir(folder)
+        lat, lon, csh = [], [], []
+        for i, f in enumerate(files):
+            l = lasio.read('{}/{}'.format(folder, f))
+            lat.append(l.header['Well']['LAT'].value)
+            lon.append(l.header['Well']['LON'].value)
+            csh.append(l['CSH_PRED'])
+
+        sweet_ratio = []
+        for i in range(len(csh)):
+            m = csh[i] < 0.6
+            r = np.sum(m) / len(m)
+            sweet_ratio.append(r)
+
+        gx, gy = np.meshgrid(np.linspace(-98, -90.75, 100), np.linspace(26.5, 30.25, 100))
+        gp = interpolate.griddata((lon, lat), sweet_ratio, (gx, gy), method=method)
+        fig = plt.figure(figsize=(10,10))
+        ax = fig.add_subplot(111, projection=plate)
+        im1 = ax.scatter(lon, lat, c=sweet_ratio, s=30,
+                        cmap=cmap, vmin=vmin, vmax=vmax, edgecolor='k', lw=0.5, transform=plate, zorder=1)
+        ax.coastlines(resolution='50m', color='black', lw=2, zorder=2)
+        gl = ax.gridlines(draw_labels=True)
+        gl.top_labels = gl.right_labels = False
+        gl.xformatter, gl.yformatter = LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+        cb = plt.colorbar(im1, ax=ax, shrink=0.365)
+        cb.set_label('Proportion of Sweet Spots', rotation=270, labelpad=15, weight='bold', fontsize=12)
+        ax.contour(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax)
+        ax.patch.set_facecolor('lightgrey')
+        plt.tight_layout()
+        plt.show()
+        return None
 
 ###########################################################################
 ############################## MAIN ROUTINE ###############################
