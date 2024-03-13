@@ -1,6 +1,7 @@
 ############################################################################
-#     AUTOMATIC CORE2LOG ROCK CLASSIFICATION FOR RAPID CHARACTERIZATION    #
-# OF POTENTIAL CO2 STORAGE SITES IN THE GULF OF MEXICO USING DEEP LEARNING #
+#        AUTOMATIC ROCK CLASSIFICATION FROM CORE DATA TO WELL LOGS:        #
+#                  USING MACHINE LEARNING TO ACCELERATE                    #
+#                POTENTIAL CO2 STORAGE SITE CHARACTERIZATION               #
 ############################################################################
 # Author: Misael M. Morales (github.com/misaelmmorales)                    #
 # Co-Authors: Oriyomi Raheem, Dr. Michael Pyrcz, Dr. Carlos Torres-Verdin  #
