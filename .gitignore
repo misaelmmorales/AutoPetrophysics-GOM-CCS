@@ -2,3 +2,4 @@ Updates/*
 Data/*
 paper/*
 *.keras
+*.slurm
