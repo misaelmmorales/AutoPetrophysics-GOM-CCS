@@ -1,16 +1,15 @@
-# SPGlobal-GOM-CCS
-Morales, M. M., Christie, M., Rabinovich, V., Torres-Verdin, C., and Pyrcz, M. (2024). Automatic well log baseline correction for rapid characterization of potential CO<sub>2</sub> storage sites in the Gulf of Mexico using deep learning
+# Automatic petrophysics for potential CO2 storage site characterization in the Gulf of Mexico.
 
-Morales, M. M., Raheem, O., Christie, M., Rabinovich, V., Torres-Verdin, C., and Pyrcz, M. (2024). Automatic rock classification from core data to well log: Accelerating CO<sub>2</sub> storage site characterization using machine learning
+Morales, M. M., Christie, M., Rabinovich, V., Torres-Verdin, C., and Pyrcz, M. (2024). Automatic well-log baseline correction via deep learning for rapid screening of potential CO2 storage sites.
+
+Morales, M. M., Raheem, O., Christie, M., Rabinovich, V., Torres-Verdin, C., and Pyrcz, M. (2024). Automatic rock classification from core data to well logs: Using machine learning to accelerate potential CO2 storage site characterization
 
 <p align="center">
-  <img src="https://github.com/misaelmmorales/SP500-GOM-CCS/blob/main/figures/well_OCS G01862 ST00BP00.png" width=1000>
+  <img src="https://github.com/misaelmmorales/AutoPetrophysics-GOM-CCS/blob/main/figures/abc_fig3.png" width=300 height=350>
+  <img src="https://github.com/misaelmmorales/AutoPetrophysics-GOM-CCS/blob/main/figures/arc_fig5.png" width=300 height=350>
 </p> 
 
 <p align="center">
-  <img src="https://github.com/misaelmmorales/SPGlobal-GOM-CCS/blob/main/figures/estimation_well_42706403800000.png" width=1000>
+  <img src="https://github.com/misaelmmorales/AutoPetrophysics-GOM-CCS/blob/main/figures/abc_fig5.png" width=300 height=150>
+  <img src="https://github.com/misaelmmorales/AutoPetrophysics-GOM-CCS/blob/main/figures/arc_fig6.png" width=300 height=150>
 </p> 
-
-<p align="center">
-  <img src="https://github.com/misaelmmorales/SPGlobal-GOM-CCS/blob/main/figures/ARC_dashboard_42702401710000_leverett.png" width=1000>
-</p>
