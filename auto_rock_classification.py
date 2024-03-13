@@ -5,7 +5,7 @@
 # Author: Misael M. Morales (github.com/misaelmmorales)                    #
 # Co-Authors: Oriyomi Raheem, Dr. Michael Pyrcz, Dr. Carlos Torres-Verdin  #
 # Co-Authors: Murray Christie, Vladimir Rabinovich - S&P Global            #
-# Date: 2024-03-01                                                         #
+# Date: 2024-03                                                            #
 ############################################################################
 # Copyright (c) 2024, Misael M. Morales                                    #
 # Licensed under the Apache License, Version 2.0 (the "License");          #
@@ -119,7 +119,7 @@ class RockClassification:
         time0 = time.time()
         postprocess_dfs = []
         self.bigloader()
-        print('-'*80+'\n'+' '*20+'Processing Core2Log Rock Classification')
+        print('-'*80+'\n'+' '*20+'Processing Core2Log Rock Classification'+'\n'+'-'*80)
         self.mthd = self.method.upper() if self.method in self.ml_methods else self.method.capitalize()
         print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(self.mthd, self.n_classes, self.cutoffs)+'\n'+'-'*80)
         for i in tqdm(range(len(self.well_core)), desc='Processing well(s)', unit=' well'):

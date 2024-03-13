@@ -5,7 +5,7 @@
 # Author: Misael M. Morales (github.com/misaelmmorales)                    #
 # Co-Authors: Dr. Michael Pyrcz, Dr. Carlos Torres-Verdin - UT Austin      #
 # Co-Authors: Murray Christie, Vladimir Rabinovich - S&P Global            #
-# Date: 2024-03-01                                                         #
+# Date: 2024-03                                                            #
 ############################################################################
 # Copyright (c) 2024, Misael M. Morales                                    #
 # Licensed under the Apache License, Version 2.0 (the "License");          #
@@ -116,13 +116,14 @@ class SPLogAnalysis:
         plt.show()
         return None
 
-    def plot_survey(self, fname=None, figsize=(10,5), showcols:bool=False):
+    def plot_survey(self, fname=None, figsize=(10,5), showcols:bool=False, maketitle:bool=False):
         '''
         Plot the directional survey from 'DATA/UT dir surveys'
         '''
+        folder = 'Data/UT dir surveys'
         if fname==None:
-            fname = '427064023000_DIRSUR_NAD27(USFEET)US-SPC27-EXACT(TX-27SC).TXT'
-        survey = pd.read_csv('Data/UT dir surveys/{}'.format(fname), skiprows=3, sep='\s+')
+            fname = os.listdir(folder)[14]
+        survey = pd.read_csv('{}/{}'.format(folder, fname), skiprows=3, sep='\s+')
         wname = fname.split('.')[0].split('_')[0]
         print('DF Columns:', survey.columns.values) if showcols else None
         fig = plt.figure(figsize=figsize)
@@ -131,21 +132,25 @@ class SPLogAnalysis:
         ax.set_xlabel('X (ft)', weight='bold'); ax.set_ylabel('Y (ft)', weight='bold'); ax.set_zlabel('MD (ft)', weight='bold')
         ax.set(xlim3d=(0,500), ylim3d=(-500,0), zlim3d=(0,7000))
         ax.invert_zaxis()
-        ax.set_title('{}'.format(wname), weight='bold')
+        ax.set_title('{}'.format(wname), weight='bold') if maketitle else None
         plt.tight_layout()
         plt.savefig('figures/Dir_Survey_{}.png'.format(wname), dpi=300) if self.save_fig else None
         plt.show()
         return None
 
-    def plot_well(self, well_name:str, figsize=(10,8), fig2size=(10,3), curve='SP', order=(5,1,0), fig3size=(10,4)):
+    def plot_well(self, well_name:str=None, maketitle:bool=False, printkeys:bool=False,
+                  figsize=(10,8), fig2size=(10,3), curve='SP', order=(5,1,0), fig3size=(10,4)):
         '''
         Full well log plot with tracks for each curve
         '''
-        well_log = lasio.read('Data/UT Export 9-19/{}.las'.format(well_name))
+        folder = 'Data/UT Export 9-19'
+        if well_name is None:
+            well_name = os.listdir(folder)[5]
+        well_log = lasio.read('{}/{}'.format(folder, well_name))
         well_name, well_field = well_log.header['Well']['WELL'].value, well_log.header['Well']['FLD'].value
-        print(well_log.curvesdict.keys()) if self.verbose else None
+        print(well_log.curvesdict.keys()) if printkeys else None
         fig, axs = plt.subplots(1, 5, figsize=figsize, sharey=True)
-        fig.suptitle('{} | {}'.format(well_field, well_name), weight='bold')
+        fig.suptitle('{} | {}'.format(well_field, well_name), weight='bold') if maketitle else None
         ax1, ax2, ax3, ax4, ax5 = axs.flatten()
         ax11, ax12 = ax1.twiny(), ax1.twiny()
         self.plot_curve(ax12, well_log, 'CALI', 0.1, 100, color='k', fill=True)
@@ -588,7 +593,7 @@ class BaselineCorrection:
         plt.show()
         return None
 
-    def plot_SP_and_NORM(self, data=None, short_title:str='clean',
+    def plot_SP_and_NORM(self, data=None, short_title:str='clean', wellname:bool=False,
                          nrows:int=3, ncols:int=10, mult:int=1, figsize=(20,12), xlim=(-200,50)):
         fig, axs = plt.subplots(nrows, ncols, figsize=figsize, sharey=True)
         k = 0
@@ -598,7 +603,7 @@ class BaselineCorrection:
                 idx, sp, sp_norm = d[k,:,0], d[k,:,1], d[k,:,2]
                 axs[i,j].plot(sp,  idx, c='tab:purple', label='SP')
                 axs[i,j].plot(sp_norm, idx, c='darkmagenta', label='SP_NORM')
-                axs[i,j].set_title(os.listdir(self.folder)[k].split('.')[0], weight='bold')
+                axs[i,j].set_title(os.listdir(self.folder)[k].split('.')[0], weight='bold') if wellname else None
                 axs[i,0].set_ylabel('DEPTH [ft]', weight='bold')
                 axs[-1,j].set_xlabel('SP/SP_NORM', weight='bold')
                 axs[i,j].set_xlim(xlim)
@@ -711,7 +716,7 @@ class TransferLearning(BaselineCorrection):
         return None
     
     def plot_transfer_results(self, filenum:int=100, figsize=(10,8), showfig:bool=True, 
-                              add_title:bool=True, semilog1:bool=False):
+                              add_title:bool=False, semilog1:bool=False):
         f = os.listdir(self.out_folder)[filenum]
         l = lasio.read('{}/{}'.format(self.out_folder,f))
         d = l.df()
@@ -920,8 +925,8 @@ if __name__ == '__main__':
     spl = SPLogAnalysis()
     spl.__dict__
     spl.plot_ccs_sand_wells(figsize=(8,3), value='POROSITY', cmap='jet')
-    spl.plot_survey(figsize=(10,3), fname='427064023000_DIRSUR_NAD27(USFEET)US-SPC27-EXACT(TX-27SC).TXT')
-    spl.plot_well(figsize=(10,8), well_name='17700004060000', curve='SP', order=(5,1,0))
+    spl.plot_survey(figsize=(10,3))
+    spl.plot_well(figsize=(10,8), curve='SP', order=(5,1,0))
 
     ### Automatic Baseline Correction
     blc = BaselineCorrection()
