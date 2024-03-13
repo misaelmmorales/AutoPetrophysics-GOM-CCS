@@ -61,6 +61,7 @@ class RockClassification:
                        return_data:bool=False, verbose:bool=True,
                        ):
         
+        self.show_id         = False
         self.folder          = folder
         self.subfolder       = subfolder
         self.file            = file
@@ -106,12 +107,12 @@ class RockClassification:
     '''
     Main routines
     '''
-    def run_dashboard(self, maketitle:bool=False):
+    def run_dashboard(self):
         time0 = time.time()
         self.bigloader()
         self.preprocessing()
         self.calculate_method_clf()
-        self.postprocessing(maketitle)
+        self.postprocessing()
         print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
         return None
     
@@ -152,7 +153,8 @@ class RockClassification:
         self.all_classes, self.all_labels = {}, []
         lati, longi = self.all_data['SURFACE_LATITUDE'][self.well_number], self.all_data['SURFACE_LONGITUDE'][self.well_number]
         wid = self.uwi_clean[self.well_number]
-        print('-'*80+'\n'+'Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, wid, lati, longi))
+        if self.show_id:
+            print('-'*80+'\n'+'Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, wid, lati, longi))
         print('Well shape: {}'.format(self.well_core[self.uwi_clean[self.well_number]].shape))
         print('-'*80)
         self.calc_comparisons(n_classes, leverett_cutoffs, winland_cutoffs, lorenz_cutoffs)
@@ -185,9 +187,9 @@ class RockClassification:
         self.make_header() if header else None
         return None
     
-    def postprocessing(self, maketitle:bool=False):
+    def postprocessing(self):
         self.make_class_array()
-        self.make_dashboard(maketitle)
+        self.make_dashboard()
         return None
     
     '''
@@ -386,14 +388,15 @@ class RockClassification:
     
     def make_header(self):
         print('-'*80+'\n'+' '*16+'Automatic Core2Log Rock Classification Dashboard'+'\n'+'-'*80)
-        print('Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, self.wid, self.lati[self.well_number], self.longi[self.well_number]))
+        if self.show_id:
+            print('Well #{} | UWI: {} | LAT: {} | LONG: {}'.format(self.well_number, self.wid, self.lati[self.well_number], self.longi[self.well_number]))
         self.mthd = self.method.upper() if self.method in self.ml_methods else self.method.capitalize()
         print('Method: {} | Number of Classes: {} | Cutoffs: {}'.format(self.mthd, self.n_classes, self.cutoffs))
         print('Well shape: {}'.format(self.d.shape))
         print('-'*80)
         return None  
         
-    def make_dashboard(self, maketitle:bool=False):
+    def make_dashboard(self):
         fig   = plt.figure(figsize=self.figsize)
         gs    = GridSpec(6, 6, figure=fig)
         ax1 = fig.add_subplot(gs[:3, :3], projection=self.plate)
@@ -481,7 +484,7 @@ class RockClassification:
         ax5.set_xticks(np.arange(1,self.n_classes+1)); ax5.set_xticklabels(np.arange(1,self.n_classes+1))
 
         # plot settings
-        if maketitle:
+        if self.show_id:
             fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {} | {} method'.format(self.well_number, self.wid, lab), weight='bold')
         [ax.grid(True, which='both', alpha=self.alphag) for ax in axs]
         plt.tight_layout()
@@ -558,8 +561,8 @@ class RockClassification:
         ax11.vlines(self.x, self.ymin, self.y, color='k', ls='--', alpha=self.alpha, lw=1)
         ax11.hlines(self.y, self.xmin, self.x, color='k', ls='--', alpha=self.alpha, lw=1)
         ax11.set(xlim=(self.xmin, self.xmax), ylim=(self.ymin, self.ymax), xlabel='Surface Longitude', ylabel='Surface Latitude')
-
-        fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {}'.format(self.well_number, self.wid), weight='bold')
+        if self.show_id:
+            fig.suptitle('Automatic Core2Log Rock Classification | W#{} | UWI: {}'.format(self.well_number, self.wid), weight='bold')
         [ax.grid(True, which='both', alpha=self.alphag) for ax in all_axs]
         plt.tight_layout()
         plt.savefig('figures/Comparison_of_techniques_{}'.format(self.wid), dpi=300) if self.savefig else None
