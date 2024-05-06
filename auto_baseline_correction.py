@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 
 import lasio
 from tqdm import tqdm
-from scipy import stats, signal, interpolate
+from scipy import stats, signal, interpolate, ndimage
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_squared_error
 
@@ -348,7 +348,9 @@ class BaselineCorrection:
         if showfig:
             self.plot_predictions(train_or_test='train', xlim=xlim)
             self.plot_predictions(train_or_test='test', xlim=xlim)
-            self.calc_ensemble_uq(); self.plot_csh_pred('train'); self.plot_csh_pred('test')
+            self.calc_ensemble_uq(showfig=showfig); self.plot_csh_pred('train'); self.plot_csh_pred('test')
+        else:
+            self.calc_ensemble_uq(showfig=showfig); self.predict_all(); self.calc_csh()
         print('-'*60) if self.verbose else None
         return None    
 
@@ -642,10 +644,41 @@ class BaselineCorrection:
             plt.show()
         self.ens_uq = {'lb':lb, 'mu':mu, 'ub':ub}
         return self.ens_uq if self.return_data else None
+
+    def moving_window_percentile(self, arr, window_size=1001, percentile=10, mode='edge'):
+        pad_width  = (window_size - 1) // window_size
+        arr_padded = np.pad(arr, pad_width, mode=mode)
+        result     = ndimage.percentile_filter(arr_padded, percentile, size=window_size)
+        return np.min([arr, result], axis=0)
+
+    def predict_all(self):
+        self.X_all  = np.concatenate((self.X_train, self.X_test), axis=0)
+        self.y_all  = np.concatenate((self.y_train, self.y_test), axis=0)
+        self.y_pred = np.concatenate((self.y_train_pred, self.y_test_pred), axis=0)
+        return self.X_all, self.y_all, self.y_pred if self.return_data else None
+
+    def calc_csh(self, data=None, window_size=1001, percentile=10, mode='edge'):
+        data = (self.X_all, self.y_all, self.y_pred) if data is None else data
+        idx, yt, yh = data[0], data[1], data[2]
+        self.csh_linear = np.zeros((yh.shape[0], yh.shape[1]))
+        self.csh_uncert = np.zeros((yh.shape[0], yh.shape[1]))
+        self.csh_smooth = np.zeros((yh.shape[0], yh.shape[1]))
+        self.sand_bl    = np.zeros((yh.shape[0], yh.shape[1]))
+        for i in range(yh.shape[0]):
+            d  = yh[i]
+            lb = np.percentile(d, self.bounds[0])
+            ub = np.percentile(d, self.bounds[1])
+            z  = (d - lb) / (ub - lb)
+            self.csh_linear[i] = (d - d.min()) / (d.max() - d.min())
+            self.csh_uncert[i] = (z - z.min()) / (z.max() - z.min())
+            self.sand_bl[i] = self.moving_window_percentile(d, window_size=window_size, percentile=percentile, mode=mode)
+            self.csh_smooth[i] = (d - self.sand_bl[i]) / (d.max() - self.sand_bl[i])
+        return self.csh_linear, self.csh_uncert, self.csh_smooth if self.return_data else None
     
     def plot_csh_pred(self, train_or_test:str='train',
+                      window_size=1001, percentile=0.10, mode='edge',
                       showfig:bool=True, nrows:int=3, ncols:int=10, mult:int=1, x2lim=None, 
-                      colors=['darkmagenta','tab:blue','tab:green'], figsize=(20,12)):
+                      colors=['darkmagenta','tab:blue','tab:green','tab:red'], figsize=(20,12)):
         if train_or_test=='train':
             yh, idx = self.y_train_pred, self.X_train[...,0]
         elif train_or_test=='test':
@@ -654,6 +687,7 @@ class BaselineCorrection:
             raise ValueError('train_or_test must be "train" or "test"')
         csh_linear = np.zeros((yh.shape[0], yh.shape[1]))
         csh_uncert = np.zeros((yh.shape[0], yh.shape[1]))
+        csh_smooth = np.zeros((yh.shape[0], yh.shape[1]))
         for i in range(yh.shape[0]):
             d = yh[i]
             lb = np.percentile(d, self.bounds[0])
@@ -661,6 +695,8 @@ class BaselineCorrection:
             csh_linear[i] = (d - d.min()) / (d.max() - d.min())
             z = (d - lb) / (ub - lb)
             csh_uncert[i] = (z - z.min()) / (z.max() - z.min())
+            sand_bl = self.moving_window_percentile(d, window_size=window_size, percentile=percentile, mode=mode)
+            csh_smooth[i] = (d - sand_bl) / (d.max() - sand_bl)
         if showfig:
             k = 0
             fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
@@ -670,6 +706,7 @@ class BaselineCorrection:
                     ax.plot(yh[k], idx[k], color=colors[0])
                     ax2.plot(csh_linear[k], idx[k], color=colors[1])
                     ax2.plot(csh_uncert[k], idx[k], color=colors[2])
+                    ax2.plot(csh_smooth[k], idx[k], color=colors[3])
                     ax2.set_xlim(x2lim)
                     axs[i,0].set_ylabel('Depth [ft]'); axs[-1,j].set_xlabel('SP_pred')
                     ax.grid(True, which='both'); ax.invert_yaxis()
@@ -691,7 +728,7 @@ class TransferLearning(BaselineCorrection):
         self.model      = keras.models.load_model('baseline_correction_model.keras')
         self.plate      = crs.PlateCarree()
     
-    def make_transfer_prediction(self):
+    def make_transfer_prediction(self, csh_method:str='sand-corrected'):
         files = os.listdir(self.in_folder)
         for file in tqdm(files, desc='Transfer Learning predictions', unit=' file(s)'):
             log_las = lasio.read('{}/{}'.format(self.in_folder, file))
@@ -708,7 +745,7 @@ class TransferLearning(BaselineCorrection):
                 self.sp_pred  = self.model.predict(d, verbose=0).squeeze().astype('float32')
                 if size != 44055:
                     self.sp_pred = self.sp_pred[:size]
-                self.csh_pred = self.calc_csh()
+                self.csh_pred = self.calc_csh(csh_type=csh_method)
                 self.transfer_inverse_scaler()
                 log_las.append_curve('SP_PRED', self.log_, unit='mV', descr='Predicted SP from baseline correction')
                 log_las.append_curve('CSH_PRED', self.csh_pred, unit='%', descr='Estimated Csh from predicted SP')
@@ -759,14 +796,31 @@ class TransferLearning(BaselineCorrection):
     '''
     Auxiliary functions
     '''
-    def calc_csh(self, d=None):
+    def moving_window_percentile(self, arr, window_size=1001, percentile=10, mode='edge'):
+        pad_width  = (window_size - 1) // window_size
+        arr_padded = np.pad(arr, pad_width, mode=mode)
+        result     = ndimage.percentile_filter(arr_padded, percentile, size=window_size)
+        return np.min([arr, result], axis=0)
+
+    def calc_csh(self, csh_type='sand-corrected', d=None, window_size=1001, percentile=10, mode='edge'):
         if d==None:
             d = self.sp_pred
+        assert csh_type in ['raw', 'percentile', 'sand-corrected'], 'csh_type must be "raw", "percentile" or "sand-corrected"'
+        csh_linear = (d - d.min()) / (d.max() - d.min())
         lb = np.percentile(self.sp_pred, self.bounds[0])
         ub = np.percentile(self.sp_pred, self.bounds[1])
         z          = (d-lb) / (ub-lb)
         csh_uncert = (z-z.min()) / (z.max()-z.min())
-        return csh_uncert
+        sand_bl    = self.moving_window_percentile(d, window_size=window_size, percentile=percentile, mode=mode)
+        csh_smooth = (d - sand_bl) / (d.max() - sand_bl)
+        if csh_type=='raw':
+            return csh_linear
+        elif csh_type=='percentile':
+            return csh_uncert
+        elif csh_type=='sand-corrected':
+            return csh_smooth
+        else:
+            raise ValueError('csh_type must be "raw", "percentile" or "sand-corrected"') 
     
     def transfer_scaler(self):
         sd, mu, minvalue, maxvalue = {}, {}, {}, {}
