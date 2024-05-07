@@ -33,11 +33,35 @@ from sklearn.metrics import mean_squared_error
 from cartopy import crs
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 
+import torch
 import keras
 import tensorflow as tf
 from keras import Model
 from keras import layers, optimizers
 from keras import backend as K
+
+def check_tf_gpu():
+    sys_info = tf.sysconfig.get_build_info()
+    version, cuda, cudnn = tf.__version__, sys_info["cuda_version"], sys_info["cudnn_version"]
+    count = len(tf.config.experimental.list_physical_devices())
+    name  = [device.name for device in tf.config.experimental.list_physical_devices('GPU')]
+    print('-'*60)
+    print('----------------------- VERSION INFO -----------------------')
+    print('TF version: {} | # Device(s) available: {}'.format(version, count))
+    print('TF Built with CUDA? {} | CUDA: {} | cuDNN: {}'.format(tf.test.is_built_with_cuda(), cuda, cudnn))
+    print(tf.config.list_physical_devices()[0],'\n', tf.config.list_physical_devices()[1])
+    print('-'*60+'\n')
+    return None
+
+def check_torch_gpu():
+    torch_version, cuda_avail = torch.__version__, torch.cuda.is_available()
+    count, name = torch.cuda.device_count(), torch.cuda.get_device_name()
+    print('-'*60)
+    print('----------------------- VERSION INFO -----------------------')
+    print('Torch version: {} | Torch Built with CUDA? {}'.format(torch_version, cuda_avail))
+    print('# Device(s) available: {}, Name(s): {}'.format(count, name))
+    print('-'*60+'\n')
+    return None
 
 ###########################################################################
 ###################### S&P GLOBAL LOG ANALYSIS TOOL #######################
