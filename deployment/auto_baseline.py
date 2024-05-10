@@ -52,42 +52,23 @@ def check_tf_gpu():
     print('-'*60+'\n')
     return None
 
-def load_train_logs(folder:str=None, padded_length:int=75000):
-    files = os.listdir(folder)
+def load_train_logs(folder:str=None, padded_length:int=75000, nfiles:int=None):
+    files = os.listdir(folder)[:nfiles] if nfiles else os.listdir(folder)
     logs_list, k = {}, 0
     for file in tqdm(files, desc='Processing Files', unit=' file(s)'):
         log = lasio.read('{}/{}'.format(folder,file))
         if 'SP_NORM' not in log.keys() or 'SP' not in log.keys():
             continue
-        logs_list[k] = pd.DataFrame({'DEPT': log['DEPT'], 'SP': log['SP'], 'SP_NORM': log['SP_NORM']})
+        logs_list[k] = pd.DataFrame({'DEPT':log['DEPT'], 'SP':log['SP'], 'SP_NORM':log['SP_NORM']})
         k += 1
-    logs = np.zeros((len(logs_list), padded_length, 3))
+    logs = np.ones((len(logs_list), padded_length, 3))*-999
     for i in range(len(logs_list)):
-        logs[i,logs_list[i].index,:] = logs_list[i].values
-    logs = np.where(logs==0, np.nan, logs)
-    logs_clean = np.nan_to_num(logs, nan=0)
-    logs, logs_clean = calc_features(logs, logs_clean)
-    print('Training well logs:', logs_clean.shape)
-    return logs, logs_clean
-
-def load_train_logs_parallel(folder:str=None, padded_length:int=75000):
-    files = os.listdir(folder)
-    logs_list = []
-    @dask.delayed
-    def load_file(file):
-        log = lasio.read(os.path.join(folder, file))
-        if 'SP_NORM' in log.keys() and 'SP' in log.keys():
-            logs_list.append(pd.DataFrame({'DEPT': log['DEPT'], 'SP': log['SP'], 'SP_NORM': log['SP_NORM']}))
-    load_tasks = [load_file(file) for file in files]
-    dask.compute(*load_tasks)    
-    logs = da.zeros((len(logs_list), padded_length, 3), chunks=(1, padded_length, 3))
-    for i, log_df in enumerate(logs_list):
-        logs[i, log_df.index, :] = log_df.values
-    logs = da.where(logs == 0, da.nan, logs)
-    logs_clean = da.nan_to_num(logs, nan=0)
-    logs, logs_clean = calc_features(logs, logs_clean)
-    print('Training well logs:', logs_clean.shape)
-    return logs, logs_clean
+        logs[i, logs_list[i].index, :] = logs_list[i].values
+    clean = np.nan_to_num(logs, nan=-999)
+    clean = np.ma.masked_where(clean==-999, clean)
+    logs, clean, masked = calc_features(logs, clean)
+    print('Training well logs - raw: {} | clean: {} | masked: {}'.format(logs.shape, clean.shape, masked.shape))
+    return logs, clean, masked
 
 def calc_dxdz(l):
     dxdz = np.zeros((l.shape[0], l.shape[1]))
@@ -155,8 +136,9 @@ def calc_features(logs, logs_clean):
     logs = np.concatenate((logs, logs_savgol), axis=-1)
     logs_cspline = calc_cspline(logs_clean, 0.0)
     logs = np.concatenate((logs, logs_cspline), axis=-1)
-    logs_clean = np.nan_to_num(logs, nan=0)
-    return logs, logs_clean
+    logs_clean = np.nan_to_num(logs, nan=-999)
+    logs_masked = np.ma.masked_where(logs_clean==-999, logs_clean)
+    return logs, logs_clean, logs_masked
 
 def datascaler(data):
     logs_norm = np.zeros_like(data)
@@ -167,6 +149,7 @@ def datascaler(data):
         mu[k] = np.nanmean(df)
         logs_norm[...,k] = (df - mu[k]) / sd[k]
     scaler_values = {'sd': sd, 'mu': mu}
+    log_norm = np.ma.masked_where(logs_norm==-999, logs_norm)
     return logs_norm, scaler_values
 
 def make_nn(kernel_size:int=15, drop=0.2, depths=[16,32,64], in_channels:int=10):
@@ -211,3 +194,31 @@ def plot_loss(fit, figsize=(5,4), savefig=False):
     plt.savefig('figures/Training_Performance.png', dpi=300) if savefig else None
     plt.show()
     return None
+
+def predict_csh(sp, percentiles=[5, 95]):
+    def moving_window_percentile(arr, window_size, percentile, mode='edge'):
+        pad_width  = (window_size - 1) // window_size
+        arr_padded = np.pad(arr, pad_width, mode=mode)
+        result     = ndimage.percentile_filter(arr_padded, percentile, size=window_size)
+        return np.min([arr, result], axis=0) 
+    def normalize(arr):
+        return (arr - np.nanmin(arr)) / (np.nanmax(arr) - np.nanmin(arr))
+    sp = normalize(sp)
+    # linear Csh estimation
+    csh_linear = (sp - sp.min()) / (sp.max() - sp.min())
+    csh_linear = normalize(csh_linear)
+    # percentile Csh estimation
+    lb = np.percentile(sp, percentiles[0])
+    ub = np.percentile(sp, percentiles[1])
+    csh_percentile = (sp - lb) / (ub - lb)
+    csh_percentile = normalize(csh_percentile)
+    # filter Csh estimation
+    sand_bl1 = moving_window_percentile(csh_percentile, 51, percentiles[0])
+    sand_bl2 = moving_window_percentile(csh_percentile, 101, percentiles[0])
+    sand_bl3 = moving_window_percentile(csh_percentile, 201, percentiles[0])
+    sand_bl  = np.mean([sand_bl1, sand_bl2, sand_bl3], axis=0)
+    csh_window = (sp - sand_bl) / (sp.max() - sand_bl)
+    csh_window = -csh_window + 1
+    csh_window = normalize(csh_window)
+    # return all three
+    return csh_linear, csh_percentile, csh_window
