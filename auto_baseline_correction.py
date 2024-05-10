@@ -230,7 +230,7 @@ class BaselineCorrection:
         self.log_length      = 44055
         self.folder          = 'Data/UT Export 9-19/'
         self.scaler          = 'standard'
-        self.bounds          = [10, 90]
+        self.bounds          = [5, 95]
 
         self.decimate        = False
         self.decimate_q      = 10
@@ -673,6 +673,13 @@ class BaselineCorrection:
         pad_width  = (window_size - 1) // window_size
         arr_padded = np.pad(arr, pad_width, mode=mode)
         result     = ndimage.percentile_filter(arr_padded, percentile, size=window_size)
+
+        # result1    = ndimage.percentile_filter(arr_padded, percentile, size=101)
+        # result2    = ndimage.percentile_filter(arr_padded, percentile, size=501)
+        # result3    = ndimage.percentile_filter(arr_padded, percentile, size=1001)
+        # result_i = np.argmin([result1.std(), result2.std(), result3.std()])
+        # result = [result1, result2, result3][result_i]
+
         return np.min([arr, result], axis=0)
 
     def predict_all(self):

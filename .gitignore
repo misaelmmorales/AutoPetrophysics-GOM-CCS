@@ -3,3 +3,4 @@ Data/*
 paper/*
 *.keras
 *.slurm
+*.las
