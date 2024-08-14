@@ -34,7 +34,6 @@ from matplotlib.colors import ListedColormap
 from cartopy import crs
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 
-import torch
 import tensorflow as tf
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import MinMaxScaler
@@ -51,16 +50,6 @@ def check_tf_gpu():
     print('TF version: {} | # Device(s) available: {}'.format(version, count))
     print('TF Built with CUDA? {} | CUDA: {} | cuDNN: {}'.format(tf.test.is_built_with_cuda(), cuda, cudnn))
     print(tf.config.list_physical_devices()[0],'\n', tf.config.list_physical_devices()[1])
-    print('-'*60+'\n')
-    return None
-
-def check_torch_gpu():
-    torch_version, cuda_avail = torch.__version__, torch.cuda.is_available()
-    count, name = torch.cuda.device_count(), torch.cuda.get_device_name()
-    print('-'*60)
-    print('----------------------- VERSION INFO -----------------------')
-    print('Torch version: {} | Torch Built with CUDA? {}'.format(torch_version, cuda_avail))
-    print('# Device(s) available: {}, Name(s): {}'.format(count, name))
     print('-'*60+'\n')
     return None
 
