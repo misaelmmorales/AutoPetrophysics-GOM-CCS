@@ -150,9 +150,9 @@ class RockClassification:
             postprocess_dfs.append(df)
         outname = os.path.join(self.folder, self.outfile)
         print('-'*80+'\n'+'Processing Done!'+'\n'+'Saving ({}) ...'.format(outname))
-        postprocess_df = pd.concat(postprocess_dfs, ignore_index=True)
-        postprocess_df = postprocess_df[self.outcols]
-        postprocess_df.to_csv(outname, index=False)
+        self.postprocess_df = pd.concat(postprocess_dfs, ignore_index=True)
+        self.postprocess_df = self.postprocess_df[self.outcols]
+        self.postprocess_df.to_csv(outname, index=False)
         print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
         return None
        
@@ -179,13 +179,13 @@ class RockClassification:
         return None
     
     def run_spatial_map(self, figsize=(10,10),  npts:int=100, interp:str='linear', fill:bool=False, 
-                        cmap:str='turbo', vmin=0, vmax=0.5, shrink=0.33):
+                        cmap:str='turbo', vmin=0, vmax=0.5, shrink=0.33, alpha=1):
         time0 = time.time()
         self.method='kmeans' if self.method is None else self.method
         self.n_classes=3 if self.n_classes is None else self.n_classes
         self.bigloader()
         self.preprocessing()
-        self.plot_spatial_map(npts, interp, fill, cmap, vmin, vmax, shrink, figsize)
+        self.plot_spatial_map(npts, interp, fill, cmap, vmin, vmax, shrink, alpha, figsize)
         print('Elapsed time: {:.3f} seconds'.format(time.time()-time0)+'\n'+'-'*80)
         return None
     
@@ -585,7 +585,7 @@ class RockClassification:
         plt.show() if self.showfig else None
         return None
     
-    def plot_spatial_map(self, npts:int, interp:str, fill:bool, cmap, vmin, vmax, shrink, figsize=(10,10)):
+    def plot_spatial_map(self, npts:int, interp:str, fill:bool, cmap, vmin, vmax, shrink, alpha, figsize=(10,10)):
         x, y, p = [], [], []
         for f in os.listdir(os.path.join(self.folder, self.subfolder)):
             d = pd.read_csv('{}/{}/{}'.format(self.folder, self.subfolder, f))
@@ -599,16 +599,16 @@ class RockClassification:
         fig = plt.figure(figsize=figsize)
         ax  = fig.add_subplot(111, projection=self.plate)
         if fill:
-            ax.contourf(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax)
+            ax.contourf(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax, alpha=alpha)
         else:
-            ax.contour(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax)
-        im1 = ax.scatter(x, y, c=p, s=self.s1, cmap=cmap, lw=0.25, vmin=vmin, vmax=vmax)
+            ax.contour(gx, gy, gp, cmap=cmap, vmin=vmin, vmax=vmax, alpha=alpha)
+        im1 = ax.scatter(x, y, c=p, s=self.s1, cmap=cmap, lw=0.25, vmin=vmin, vmax=vmax, alpha=alpha)
         ax.coastlines(resolution='50m', color='black', lw=2, zorder=2)
         cb = plt.colorbar(im1, shrink=shrink)
         cb.set_label('Proportion of Sweet Spots', weight='bold', rotation=270, labelpad=15)
         gl = ax.gridlines(draw_labels=True)
         gl.right_labels = gl.top_labels = False
-        gl.xformatter, gl.yformatter = LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+        gl.right_labels = gl.top_labels = False
         plt.tight_layout()
         plt.savefig('figures/regional_sweetspots', dpi=300) if self.savefig else None
         plt.show() if self.showfig else None
