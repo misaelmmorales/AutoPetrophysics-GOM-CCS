@@ -1,4 +1,4 @@
-# Automatic petrophysics for potential CO2 storage site characterization in the Gulf of Mexico.
+# Automatic petrophysics for potential CO2 storage site characterization in the Gulf of Mexico
 
 Morales, M. M., Christie, M., Rabinovich, V., Torres-Verdin, C., and Pyrcz, M. (2024). Automatic well-log baseline correction via deep learning for rapid screening of potential CO2 storage sites. SEG/AAPG International Meeting for Applied Geoscience & Energy.
 
